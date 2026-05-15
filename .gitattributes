@@ -1,0 +1,20 @@
+# Auto detect text files and ensure LF line endings
+* text=auto eol=lf
+
+# Go source
+*.go text diff=golang
+
+# Binary files
+*.gif binary
+*.png binary
+*.jpg binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+
+# VHS demo tape
+*.tape text
+
+# Shell scripts
+*.sh text eol=lf

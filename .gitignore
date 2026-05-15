@@ -1,0 +1,11 @@
+/atlas
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/dist/
+.DS_Store
+*.log
+coverage.out
