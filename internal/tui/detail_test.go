@@ -37,7 +37,7 @@ func TestRenderDetail_FullFields(t *testing.T) {
 	t.Setenv("HOME", "/home/u")
 	r := mkDetailRepo("atlas")
 	r.Dirty = true
-	out := renderDetail(r, recentCommitsState{loaded: true, lines: []string{"first commit", "second commit"}}, 60, newStyles(""))
+	out := renderDetail(r, recentCommitsState{loaded: true, lines: []string{"first commit", "second commit"}}, nil, 60, newStyles(""))
 	for _, want := range []string{
 		"atlas",
 		"~/projects/go/atlas",
@@ -74,7 +74,7 @@ func TestRenderDetail_FullFields(t *testing.T) {
 func TestRenderDetail_NoOriginOmitted(t *testing.T) {
 	r := mkDetailRepo("atlas")
 	r.OriginURL = ""
-	out := renderDetail(r, recentCommitsState{}, 60, newStyles(""))
+	out := renderDetail(r, recentCommitsState{}, nil, 60, newStyles(""))
 	if strings.Contains(out, "Origin") && strings.Contains(out, "—") {
 		// Either we omitted the row or rendered "—" — both acceptable
 		// behaviors for a missing field. But the rendered "Origin" row
@@ -87,7 +87,7 @@ func TestRenderDetail_NoCommitsPlaceholder(t *testing.T) {
 	r := mkDetailRepo("atlas")
 	r.LastCommitAt = nil
 	// Loaded with an empty slice = "no commits to show".
-	out := renderDetail(r, recentCommitsState{loaded: true, lines: []string{}}, 60, newStyles(""))
+	out := renderDetail(r, recentCommitsState{loaded: true, lines: []string{}}, nil, 60, newStyles(""))
 	if !strings.Contains(out, "(no commits)") {
 		t.Errorf("expected (no commits) placeholder for loaded-empty; got:\n%s", out)
 	}
@@ -97,12 +97,12 @@ func TestRenderDetail_LoadingPlaceholder(t *testing.T) {
 	r := mkDetailRepo("atlas")
 	// Zero state = never requested → render as loading so the pane
 	// doesn't blank out between selection-change and the first tick.
-	out := renderDetail(r, recentCommitsState{}, 60, newStyles(""))
+	out := renderDetail(r, recentCommitsState{}, nil, 60, newStyles(""))
 	if !strings.Contains(out, "(loading…)") {
 		t.Errorf("expected (loading…) placeholder for zero state; got:\n%s", out)
 	}
 	// Explicit loading flag also renders as loading.
-	out = renderDetail(r, recentCommitsState{loading: true}, 60, newStyles(""))
+	out = renderDetail(r, recentCommitsState{loading: true}, nil, 60, newStyles(""))
 	if !strings.Contains(out, "(loading…)") {
 		t.Errorf("expected (loading…) placeholder for loading=true; got:\n%s", out)
 	}
@@ -127,7 +127,7 @@ func TestRenderDetail_SanitizesControlChars(t *testing.T) {
 	out := renderDetail(r, recentCommitsState{
 		loaded: true,
 		lines:  []string{hostile},
-	}, 80, newStyles(""))
+	}, nil, 80, newStyles(""))
 
 	for _, banned := range []string{"\x1b", "\x07", "\x00"} {
 		if strings.Contains(out, banned) {
@@ -145,7 +145,7 @@ func TestRenderDetail_SanitizesControlChars(t *testing.T) {
 
 func TestRenderDetail_ErrorState(t *testing.T) {
 	r := mkDetailRepo("atlas")
-	out := renderDetail(r, recentCommitsState{loaded: true, err: errBoom{}}, 60, newStyles(""))
+	out := renderDetail(r, recentCommitsState{loaded: true, err: errBoom{}}, nil, 60, newStyles(""))
 	if !strings.Contains(out, "(commits unavailable)") {
 		t.Errorf("expected (commits unavailable) for err state; got:\n%s", out)
 	}
@@ -156,7 +156,7 @@ type errBoom struct{}
 func (errBoom) Error() string { return "boom" }
 
 func TestRenderDetail_NilRepo(t *testing.T) {
-	out := renderDetail(nil, recentCommitsState{}, 60, newStyles(""))
+	out := renderDetail(nil, recentCommitsState{}, nil, 60, newStyles(""))
 	if !strings.Contains(out, "(no selection)") {
 		t.Errorf("nil repo should render no-selection placeholder; got:\n%s", out)
 	}
@@ -170,7 +170,7 @@ func TestRenderDetail_CleanRepoOmitsHighlights(t *testing.T) {
 	r.AheadOrigin = 0
 	r.BehindOrigin = 0
 	r.StashCount = 0
-	out := renderDetail(r, recentCommitsState{loaded: true, lines: []string{"a"}}, 60, newStyles(""))
+	out := renderDetail(r, recentCommitsState{loaded: true, lines: []string{"a"}}, nil, 60, newStyles(""))
 	if strings.Contains(out, "Highlights") {
 		t.Errorf("clean repo should not show Highlights line; got:\n%s", out)
 	}

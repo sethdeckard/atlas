@@ -32,7 +32,8 @@ func renderTable(repos []repo.Repo, root, groupBy string, selected, scrollOffset
 	if len(repos) == 0 {
 		return s.row.Render("(no repositories)")
 	}
-	cols := chooseColumns(width, repos, root)
+	cols := chooseColumns(width, repos, root, groupBy)
+	pathCol := pathColumnIndex(cols)
 
 	rows := buildRenderRows(repos, root, groupBy)
 	if scrollOffset < 0 {
@@ -55,10 +56,27 @@ func renderTable(repos []repo.Repo, root, groupBy string, selected, scrollOffset
 			line = s.groupHeader.Render(formatGroupHeader(row.label, row.count, columnsWidth(cols)))
 		} else {
 			cells := rowCells(cols, row.repo, root)
+			if groupBy == "worktree" && pathCol >= 0 {
+				cells[pathCol] = worktreeConnector(row) + cells[pathCol]
+			}
+			if groupBy == "worktree" && row.depth == 0 &&
+				row.repo.PrimaryWorktree && row.repo.WorktreeHasLaggingChild &&
+				!row.repo.LaggingWorktree {
+				// Roll a forgotten child up onto the anchor so it's
+				// visible even when the child is scrolled off. Skip
+				// when the primary itself already lags — flagString
+				// has put ⊘ on this row, and appending again would
+				// double-mark the same fact.
+				cells[len(cells)-1] += " ⊘"
+			}
 			rendered := formatRow(cols, cells)
-			if row.repoIdx == selected {
+			switch {
+			case row.repoIdx == selected:
 				line = s.selected.Render(rendered)
-			} else {
+			case groupBy == "worktree" && row.depth > 0 &&
+				(row.repo.LaggingWorktree || row.repo.Stale):
+				line = s.laggingRow.Render(rendered)
+			default:
 				line = s.row.Render(rendered)
 			}
 		}
@@ -79,6 +97,14 @@ type rowEntry struct {
 	repoIdx int    // index into the source []repo.Repo when kind == rowRepo
 	label   string // group label when kind == rowGroup
 	count   int    // group repo count when kind == rowGroup
+
+	// Tree decoration, set only in the `worktree` grouping mode.
+	// depth 0 = a solo repo or a project's primary checkout (the
+	// subtree root); depth 1 = a linked worktree nested under it.
+	// lastChild marks the final child of a subtree so the renderer
+	// can draw └─ instead of ├─.
+	depth     int
+	lastChild bool
 }
 
 type rowKind int
@@ -101,6 +127,10 @@ func buildRenderRows(repos []repo.Repo, root, groupBy string) []rowEntry {
 			out[i] = rowEntry{kind: rowRepo, repo: r, repoIdx: i}
 		}
 		return out
+	}
+
+	if groupBy == "worktree" {
+		return buildWorktreeRows(repos, root)
 	}
 
 	// Pre-pass: collect group keys and counts in input order.
@@ -130,6 +160,71 @@ func buildRenderRows(repos []repo.Repo, root, groupBy string) []rowEntry {
 	return out
 }
 
+// buildWorktreeRows turns the worktree-bucketed slice (see
+// bucketWorktrees: clusters contiguous, primary first within each) into
+// the forest the table draws. Each multi-worktree project is a subtree:
+//
+//   - When the primary checkout is in scope it is the subtree root —
+//     a depth-0 repo row, no synthetic header — and its linked
+//     worktrees follow as depth-1 child rows.
+//   - When no primary is in scope (primary outside the active root or a
+//     bare-backed project), there's no anchor row, so the cluster gets
+//     a synthetic `▸ <ProjectLabel> (N)` header and every worktree
+//     renders as a depth-1 child beneath it.
+//   - A cluster with only one worktree visible (siblings filtered or
+//     out of scope) has nothing to nest, so it renders as a plain
+//     depth-0 row.
+//
+// Solo (single-worktree) repos always render as plain depth-0 rows.
+func buildWorktreeRows(repos []repo.Repo, root string) []rowEntry {
+	out := make([]rowEntry, 0, len(repos)+4)
+	for i := 0; i < len(repos); {
+		key := worktreeClusterKey(repos[i])
+		j := i
+		for j < len(repos) && worktreeClusterKey(repos[j]) == key {
+			j++
+		}
+		members := repos[i:j]
+
+		if len(members) == 1 {
+			out = append(out, rowEntry{kind: rowRepo, repo: members[0], repoIdx: i})
+			i = j
+			continue
+		}
+
+		// bucketWorktrees pulled any primary to members[0].
+		if members[0].PrimaryWorktree {
+			out = append(out, rowEntry{kind: rowRepo, repo: members[0], repoIdx: i})
+			for off := 1; off < len(members); off++ {
+				out = append(out, rowEntry{
+					kind:      rowRepo,
+					repo:      members[off],
+					repoIdx:   i + off,
+					depth:     1,
+					lastChild: off == len(members)-1,
+				})
+			}
+		} else {
+			out = append(out, rowEntry{
+				kind:  rowGroup,
+				label: repo.ProjectLabel(root, members[0]),
+				count: len(members),
+			})
+			for off := 0; off < len(members); off++ {
+				out = append(out, rowEntry{
+					kind:      rowRepo,
+					repo:      members[off],
+					repoIdx:   i + off,
+					depth:     1,
+					lastChild: off == len(members)-1,
+				})
+			}
+		}
+		i = j
+	}
+	return out
+}
+
 // groupKey returns the string key used to group `r` for the given groupBy
 // mode. Returns "" when the repo has no value for the chosen dimension
 // (e.g. a repo at root level under top_dir, or a repo with no detected
@@ -145,6 +240,8 @@ func groupKey(r repo.Repo, groupBy, root string) string {
 			return ""
 		}
 		return r.Languages[0] // primary language wins for grouping
+	case "worktree":
+		return worktreeClusterKey(r)
 	default:
 		return ""
 	}
@@ -157,6 +254,32 @@ func formatGroupHeader(label string, count, width int) string {
 		return header[:width]
 	}
 	return header
+}
+
+// worktreeConnector returns the tree-branch prefix for a child row in
+// the `worktree` grouping mode: ├─ , or └─ when it's the last sibling.
+// Parent/solo rows render flush-left (empty prefix); column alignment
+// for the rows that follow is handled by the widened path column
+// (chooseColumns adds worktreeIndent), not by left-padding the parent.
+func worktreeConnector(row rowEntry) string {
+	if row.depth == 0 {
+		return ""
+	}
+	if row.lastChild {
+		return "└─ "
+	}
+	return "├─ "
+}
+
+// pathColumnIndex returns the index of the "path" column, or -1 when it
+// was dropped (very narrow terminals never drop "path", but be safe).
+func pathColumnIndex(cols []column) int {
+	for i, c := range cols {
+		if c.key == "path" {
+			return i
+		}
+	}
+	return -1
 }
 
 func columnsWidth(cols []column) int {
@@ -199,7 +322,14 @@ type column struct {
 	width int
 }
 
-func chooseColumns(width int, repos []repo.Repo, root string) []column {
+// worktreeIndent is the fixed column budget reserved for a child
+// worktree's tree connector ("├─ " / "└─ ", both 3 runes) in the
+// `worktree` grouping mode. Parent/solo rows render flush-left; the
+// path column is widened by this so indented children still align the
+// columns that follow.
+const worktreeIndent = 3
+
+func chooseColumns(width int, repos []repo.Repo, root, groupBy string) []column {
 	// Compute natural widths (clamped). Drop columns gracefully on narrow
 	// terminals: keep repo + last_commit + flags at minimum.
 	pathW := 4    // "repo"
@@ -211,6 +341,9 @@ func chooseColumns(width int, repos []repo.Repo, root string) []column {
 		branchW = maxInt(branchW, runeLen(branchOf(r)))
 		commitW = maxInt(commitW, runeLen(relativeTime(r.LastCommitAt)))
 		flagsW = maxInt(flagsW, runeLen(flagString(r)))
+	}
+	if groupBy == "worktree" {
+		pathW += worktreeIndent
 	}
 	gap := 2
 	full := pathW + branchW + commitW + flagsW + 3*gap
@@ -306,7 +439,16 @@ func flagString(r repo.Repo) string {
 			b.WriteRune('*')
 		}
 	}
-	if r.Stale {
+	// ⊘ absorbs the ▲ meaning: a worktree with commits can only lag
+	// by also being absolutely stale (the math is unidirectional), so
+	// rendering both glyphs would double-mark the same row. ⊘ is the
+	// stronger signal — "this is the forgotten one" — so suppress ▲
+	// when ⊘ fires. ▲ alone keeps its current meaning: "old, generic
+	// — no standout worktree."
+	switch {
+	case r.LaggingWorktree:
+		b.WriteRune('⊘')
+	case r.Stale:
 		b.WriteRune('▲')
 	}
 	if r.Err != "" {

@@ -49,6 +49,47 @@ func DisplayPath(root string, r Repo) string {
 	return parts[len(parts)-2] + string(filepath.Separator) + r.Name
 }
 
+// ProjectLabel returns a human-readable name for the project a worktree
+// belongs to. It's used only by the TUI's `worktree` grouping mode when
+// a project's primary checkout can't be resolved among the scoped repos
+// (primary outside the active root, or a bare-backed setup) and the
+// cluster needs a synthetic header instead of a subtree root.
+//
+// Preference order:
+//  1. The primary worktree's display path, when PrimaryWorktreePath is
+//     known — the most recognizable name for the project.
+//  2. The basename of the directory holding CommonGitDir, with a
+//     trailing ".git" stripped (covers `/x/proj/.git` → "proj" and
+//     bare `/x/proj.git` → "proj").
+//  3. This row's own DisplayPath, as a last resort so the header is
+//     never empty.
+func ProjectLabel(root string, r Repo) string {
+	if r.PrimaryWorktreePath != "" {
+		rel, err := filepath.Rel(root, r.PrimaryWorktreePath)
+		// A primary outside the active root (the common no-primary
+		// case — that's *why* there's no subtree root in scope) makes
+		// Rel return a "../…" escape; that's not a usable label, so
+		// fall back to the project's own basename.
+		if err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+			parts := strings.Split(rel, string(filepath.Separator))
+			if len(parts) >= 2 {
+				return parts[len(parts)-2] + string(filepath.Separator) + parts[len(parts)-1]
+			}
+			return parts[len(parts)-1]
+		}
+		return filepath.Base(r.PrimaryWorktreePath)
+	}
+	if r.CommonGitDir != "" {
+		dir := filepath.Dir(r.CommonGitDir)
+		base := filepath.Base(r.CommonGitDir)
+		if base == ".git" {
+			return filepath.Base(dir)
+		}
+		return strings.TrimSuffix(base, ".git")
+	}
+	return DisplayPath(root, r)
+}
+
 // PathUnderRoot reports whether `path` is `root` itself or a descendant
 // of `root`. The check uses filepath.Separator so it works on Windows
 // (`\`) as well as Unix (`/`); naive `root + "/"` checks miss the

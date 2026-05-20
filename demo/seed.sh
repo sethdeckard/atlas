@@ -261,24 +261,40 @@ create_repo() {
     fi
 }
 
-# add_worktree parent_lang parent_name worktree_name
+# add_worktree parent_lang parent_name worktree_name [tier]
 # Linked worktree at $DEMO_ROOT/$parent_lang/$worktree_name on a new
-# branch named after the worktree. Bumps the active-tier count since
-# worktrees inherit recency from HEAD which we leave at parent's tip.
+# branch named after the worktree. tier defaults to "active".
+#
+# A linked worktree shares the parent's object store, so `git worktree
+# add` alone leaves it pointing at the parent's tip — every checkout of
+# the project would then share one LastCommitAt and atlas's stale /
+# lagging-worktree signals could never fire. To make the demo actually
+# exercise them, we land an independent backdated commit in the
+# worktree at the tier's age, so its recency diverges from the parent
+# and its siblings (e.g. a fresh primary with a dormant worktree →
+# relative "lagging" ⊘ and, past stale_days, the absolute ▲).
 add_worktree() {
-    local parent_lang=$1 parent_name=$2 worktree_name=$3
+    local parent_lang=$1 parent_name=$2 worktree_name=$3 tier=${4:-active}
 
-    bump_tier_count active
+    bump_tier_count "$tier"
 
     if [[ $DRY_RUN -eq 1 ]]; then
         printf '  would create %-8s/%-18s tier=%-8s flags=worktree-of:%s\n' \
-            "$parent_lang" "$worktree_name" "active" "$parent_name"
+            "$parent_lang" "$worktree_name" "$tier" "$parent_name"
         return
     fi
 
     local parent_dir="$DEMO_ROOT/$parent_lang/$parent_name"
     local worktree_dir="$DEMO_ROOT/$parent_lang/$worktree_name"
     git -C "$parent_dir" worktree add -q -b "$worktree_name" "$worktree_dir"
+
+    local age commit_date
+    age=$(age_for_tier "$tier")
+    commit_date=$(epoch_days_ago "$age")
+    printf 'worktree %s\n' "$worktree_name" >> "$worktree_dir/README.md"
+    git -C "$worktree_dir" add -A
+    GIT_AUTHOR_DATE="$commit_date" GIT_COMMITTER_DATE="$commit_date" \
+        git -C "$worktree_dir" commit -q -m "Worktree $worktree_name commit"
 }
 
 # -----------------------------------------------------------------------
@@ -322,9 +338,16 @@ create_repo java   beacon         cold    branches:4
 create_repo java   lighthouse     active  ahead:1
 create_repo misc   scratch        empty
 
-add_worktree go   atria  atria-feat-foo
-add_worktree go   atria  atria-feat-bar
-add_worktree ruby aether aether-hotfix
+# atria (active primary) → showcase: a fresh feature worktree plus a
+# long-forgotten one. atria-feat-bar is ~500d old: way past the
+# default stale_days (absolute ▲) AND far behind the project's
+# freshest checkout (relative ⊘). The forgotten child rolls a ⊘ up
+# onto the atria anchor row in the worktree view.
+add_worktree go   atria  atria-feat-foo recent
+add_worktree go   atria  atria-feat-bar dormant
+# aether (active primary) → negative case: its one worktree is active
+# too, so no false stale/lagging markers.
+add_worktree ruby aether aether-hotfix  active
 
 echo
 if [[ $DRY_RUN -eq 1 ]]; then

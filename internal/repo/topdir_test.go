@@ -77,3 +77,69 @@ func TestPathUnderRoot(t *testing.T) {
 		})
 	}
 }
+
+func TestProjectLabel(t *testing.T) {
+	cases := []struct {
+		name string
+		root string
+		repo repo.Repo
+		want string
+	}{
+		{
+			name: "primary path known, nested",
+			root: "/r",
+			repo: repo.Repo{
+				Name:                "atlas-feat",
+				Path:                "/r/go/atlas-feat",
+				PrimaryWorktreePath: "/r/go/atlas",
+				CommonGitDir:        "/r/go/atlas/.git",
+			},
+			want: "go/atlas",
+		},
+		{
+			name: "primary path known, at root",
+			root: "/r",
+			repo: repo.Repo{
+				Name:                "wt",
+				Path:                "/r/wt",
+				PrimaryWorktreePath: "/r/atlas",
+				CommonGitDir:        "/r/atlas/.git",
+			},
+			want: "atlas",
+		},
+		{
+			name: "no primary, derive from CommonGitDir/.git",
+			root: "/r",
+			repo: repo.Repo{
+				Name:         "d-a",
+				Path:         "/r/d-a",
+				CommonGitDir: "/elsewhere/proj/.git",
+			},
+			want: "proj",
+		},
+		{
+			name: "no primary, bare-style commondir",
+			root: "/r",
+			repo: repo.Repo{
+				Name:         "d-a",
+				Path:         "/r/d-a",
+				CommonGitDir: "/elsewhere/proj.git",
+			},
+			want: "proj",
+		},
+		{
+			name: "last resort falls back to DisplayPath",
+			root: "/r",
+			repo: repo.Repo{Name: "lonely", Path: "/r/x/lonely"},
+			want: "x/lonely",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := repo.ProjectLabel(c.root, c.repo)
+			if got != c.want {
+				t.Errorf("ProjectLabel(%q, %+v) = %q; want %q", c.root, c.repo, got, c.want)
+			}
+		})
+	}
+}

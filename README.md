@@ -70,7 +70,7 @@ aliases.
 | `/`             | live fuzzy filter on the visible repo column            |
 | `esc`           | clear the active filter (no-op when nothing's filtered) |
 | `s` / `S`       | cycle sort key / reverse direction                      |
-| `tab`           | cycle grouping (activity → top_dir → language → none)   |
+| `tab`           | cycle grouping (activity → top_dir → language → worktree → none) |
 | `enter`         | print the selected repo's path on stdout, then exit     |
 | `c`             | copy the path to the clipboard                          |
 | `o`             | open the origin URL in the browser                      |
@@ -217,9 +217,21 @@ atlas computes per-repo signals on every refresh:
   active/cold boundary tracks `stale_days` so the tier and the `▲`
   stale flag never contradict each other.
 - **Stale flag** — `▲` glyph for repos older than `stale_days`.
+- **Lagging worktree** — `⊘` glyph for a worktree that's fallen
+  at least `stale_days` behind its project's freshest sibling. The
+  "you forgot this checkout" signal. `⊘` absorbs `▲` (a worktree
+  with commits can only lag by also being absolutely stale), so the
+  glyphs never co-render on the same row; `▲` alone keeps its
+  meaning of "old, generic — no standout worktree." The project's
+  primary checkout also carries a small rolled-up `⊘` when any of
+  its worktrees lag, so a forgotten child stays discoverable from
+  the anchor row even when it's scrolled off.
 - **Worktree count** — repos sharing a `CommonGitDir`. Linked
   worktrees of one project share project-identity but each gets its
-  own row.
+  own row. The `worktree` grouping mode (cycle to it with `tab`)
+  renders each multi-worktree project as a small tree: the primary
+  checkout anchors the subtree, its linked worktrees nest beneath
+  it with `├─ / └─` connectors.
 
 The `Highlights` helper combines these into a single human-readable
 line that drives the table glyphs, the status-bar count, the detail

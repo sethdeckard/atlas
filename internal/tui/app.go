@@ -356,7 +356,7 @@ func (m Model) View() string {
 		// place the "(no matches)" placeholder underneath. Keeps
 		// the table structure visible so it's obvious the screen
 		// hasn't lost the data — the filter just doesn't match.
-		cols := chooseColumns(tableWidth, m.scopedRepos(), m.root)
+		cols := chooseColumns(tableWidth, m.scopedRepos(), m.root, m.groupBy)
 		header := m.styles.header.Render(formatRow(cols, headerCells(cols)))
 		tableBody = header + "\n" + m.styles.row.Render("(no matches)")
 	default:
@@ -375,13 +375,15 @@ func (m Model) View() string {
 	if showDetail {
 		var selected *repo.Repo
 		var recent recentCommitsState
+		var siblings []repo.Repo
 		if m.selected >= 0 && m.selected < len(m.repos) {
 			r := m.repos[m.selected]
 			selected = &r
 			recent = m.recentCommits[r.Path]
+			siblings = m.worktreeSiblings(r)
 		}
 		detail := padToHeight(
-			renderDetail(selected, recent, detailPaneWidth-3, m.styles),
+			renderDetail(selected, recent, siblings, detailPaneWidth-3, m.styles),
 			bodyHeight)
 		body = lipgloss.JoinHorizontal(
 			lipgloss.Top,
@@ -947,13 +949,15 @@ func (m *Model) recordSession() {
 
 // cycleGroup advances the group-by mode through:
 //
-//	activity → top_dir → language → none → activity
+//	activity → top_dir → language → worktree → none → activity
 //
 // The order is chosen so that one press from the smart default
 // ("activity") returns the M3-era layout ("top_dir"), and the cycle
 // always lands on something visible — the final none step disables
-// grouping but is reachable in three presses, so a separate on/off
-// toggle isn't needed.
+// grouping but is reachable in four presses, so a separate on/off
+// toggle isn't needed. The "worktree" step renders each multi-worktree
+// project as a tree (primary checkout anchoring its linked worktrees);
+// see buildWorktreeRows.
 //
 // Group changes mutate the visible repo *order* (rebuildRepos clusters
 // same-key repos when groupBy != "none"), so the rebuild is required.
@@ -966,6 +970,8 @@ func (m Model) cycleGroup() (Model, tea.Cmd) {
 	case "top_dir":
 		m.groupBy = "language"
 	case "language":
+		m.groupBy = "worktree"
+	case "worktree":
 		m.groupBy = "none"
 	default:
 		m.groupBy = "activity"
@@ -1226,6 +1232,43 @@ func (m Model) scopedRepos() []repo.Repo {
 	return out
 }
 
+// worktreeSiblings returns every worktree of `r`'s project, ordered
+// primary-first then most-recent-first, for the detail pane's roster.
+// It annotates a fresh scoped slice (same pattern as statusBarParts) so
+// the roster reflects the real project even when the active filter
+// hides some siblings. Returns nil for a solo repo (WorktreeCount <= 1)
+// or when CommonGitDir is unknown.
+func (m Model) worktreeSiblings(r repo.Repo) []repo.Repo {
+	if r.WorktreeCount <= 1 || r.CommonGitDir == "" {
+		return nil
+	}
+	scoped := m.scopedRepos()
+	repo.AnnotateDerived(scoped, m.cfg.StaleDays, nowFunc())
+	var fam []repo.Repo
+	for _, s := range scoped {
+		if s.CommonGitDir == r.CommonGitDir {
+			fam = append(fam, s)
+		}
+	}
+	sort.SliceStable(fam, func(i, j int) bool {
+		if fam[i].PrimaryWorktree != fam[j].PrimaryWorktree {
+			return fam[i].PrimaryWorktree
+		}
+		ti, tj := fam[i].LastCommitAt, fam[j].LastCommitAt
+		switch {
+		case ti == nil && tj == nil:
+			return false
+		case ti == nil:
+			return false
+		case tj == nil:
+			return true
+		default:
+			return ti.After(*tj)
+		}
+	})
+	return fam
+}
+
 // rebuildRepos recomputes m.repos from the cache, applies the active fuzzy
 // filter, sorts, annotates derived signals, and (when groupBy != "none")
 // clusters same-key repos so each group appears as a single contiguous
@@ -1315,6 +1358,9 @@ func bucketByGroup(rs []repo.Repo, groupBy, root string) []repo.Repo {
 	if groupBy == "" || groupBy == "none" || len(rs) == 0 {
 		return rs
 	}
+	if groupBy == "worktree" {
+		return bucketWorktrees(rs)
+	}
 	type bucket struct {
 		rs []repo.Repo
 	}
@@ -1336,6 +1382,63 @@ func bucketByGroup(rs []repo.Repo, groupBy, root string) []repo.Repo {
 	out := make([]repo.Repo, 0, len(rs))
 	for _, k := range order {
 		out = append(out, buckets[k].rs...)
+	}
+	return out
+}
+
+// worktreeClusterKey identifies the cluster a row belongs to in the
+// `worktree` grouping mode. Multi-worktree projects cluster on their
+// shared CommonGitDir; everything else (solo repos, or a worktree whose
+// siblings are all out of scope) gets a unique key so it stays a
+// standalone row. The prefixes keep a CommonGitDir path from ever
+// colliding with a repo Path.
+func worktreeClusterKey(r repo.Repo) string {
+	if r.WorktreeCount > 1 && r.CommonGitDir != "" {
+		return "wt:" + r.CommonGitDir
+	}
+	return "solo:" + r.Path
+}
+
+// bucketWorktrees orders rs into the forest the `worktree` mode renders.
+// Cluster order follows first appearance in the (already sort-applied)
+// input, so the active sort key drives which project comes first — the
+// freshest worktree under last_commit_at, or the alphabetically-first
+// under repo. Within a multi-worktree cluster the primary checkout is
+// pulled to the front (the subtree root); the remaining worktrees keep
+// their inherited sorted order. buildWorktreeRows turns this flat slice
+// into parent + indented child rows.
+func bucketWorktrees(rs []repo.Repo) []repo.Repo {
+	seen := make(map[string]int, 8)
+	var order []string
+	buckets := make(map[string][]repo.Repo, 8)
+	for _, r := range rs {
+		k := worktreeClusterKey(r)
+		if _, ok := seen[k]; !ok {
+			seen[k] = len(order)
+			order = append(order, k)
+		}
+		buckets[k] = append(buckets[k], r)
+	}
+	out := make([]repo.Repo, 0, len(rs))
+	for _, k := range order {
+		members := buckets[k]
+		if len(members) > 1 {
+			// Stable partition: primaries first, then the rest, each
+			// keeping inherited sorted order.
+			primaries := members[:0:0]
+			rest := make([]repo.Repo, 0, len(members))
+			for _, m := range members {
+				if m.PrimaryWorktree {
+					primaries = append(primaries, m)
+				} else {
+					rest = append(rest, m)
+				}
+			}
+			out = append(out, primaries...)
+			out = append(out, rest...)
+			continue
+		}
+		out = append(out, members...)
 	}
 	return out
 }
@@ -1394,7 +1497,7 @@ func (m Model) statusBarParts() []string {
 	// local slice, not anything we can reuse here.
 	scoped := m.scopedRepos()
 	repo.AnnotateDerived(scoped, m.cfg.StaleDays, nowFunc())
-	var dirty, ahead, behind, stash, stale int
+	var dirty, ahead, behind, stash, stale, lagging int
 	for _, r := range scoped {
 		if r.Dirty {
 			dirty++
@@ -1410,6 +1513,9 @@ func (m Model) statusBarParts() []string {
 		}
 		if r.Stale {
 			stale++
+		}
+		if r.LaggingWorktree {
+			lagging++
 		}
 	}
 	parts := []string{
@@ -1431,6 +1537,9 @@ func (m Model) statusBarParts() []string {
 	}
 	if stale > 0 {
 		parts = append(parts, fmt.Sprintf("%d stale", stale))
+	}
+	if lagging > 0 {
+		parts = append(parts, fmt.Sprintf("%d lagging", lagging))
 	}
 	parts = append(parts, fmt.Sprintf("sort: %s %s", m.sortBy, sortArrow(m.sortDesc)))
 	// Filter state is shown by the substituted first row of the

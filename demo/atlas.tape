@@ -62,25 +62,32 @@ Sleep 1500ms
 Type "s"
 Sleep 1500ms
 
-# Cycle grouping: activity → top_dir → language → none → activity.
-Type "tab"
-Sleep 2s
-Type "tab"
-Sleep 2s
-Type "tab"
-Sleep 2s
-Type "tab"
+# Cycle grouping: activity → top_dir → language → worktree → none.
+Tab
+Sleep 1500ms
+Tab
 Sleep 1500ms
 
-# Navigate; detail pane on the right updates per selection.
+# Worktree view — the headline. Each multi-worktree project is a tree:
+# the primary checkout anchors its linked worktrees (├─ / └─), a
+# forgotten one carries ▲ / ⊘, and the anchor rolls a ⊘ up. Pause,
+# then walk the selection so the detail-pane roster updates.
+Tab
+Sleep 3s
 Type "j"
-Sleep 600ms
+Sleep 800ms
 Type "j"
-Sleep 600ms
+Sleep 800ms
 Type "j"
-Sleep 600ms
+Sleep 1500ms
 Type "k"
-Sleep 1s
+Sleep 1500ms
+
+# tab → none, then wrap back to the activity default.
+Tab
+Sleep 1500ms
+Tab
+Sleep 1500ms
 
 # Help overlay.
 Type "?"

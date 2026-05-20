@@ -19,9 +19,17 @@ import "fmt"
 //     repos should look at OriginURL instead).
 //   - "N stash" / "N stashes" — surfaces forgotten WIP.
 //   - "stale" — drives the ▲ flag; flipped by repo.AnnotateDerived
-//     based on cfg.StaleDays.
+//     based on cfg.StaleDays. **Suppressed when "lagging worktree"
+//     also applies**: a worktree with commits can only lag by being
+//     itself ≥ stale_days old (the math is unidirectional), so the
+//     two labels double-mark the same row. "lagging" is the stronger
+//     signal — it tells the reader "this is the forgotten one" —
+//     and absorbs the absolute-stale meaning.
 //   - "linked worktree" — only when a project has more than one
 //     worktree (this row is one of N).
+//   - "lagging worktree" — this worktree is >= stale_days behind its
+//     project's freshest worktree; flipped by repo.AnnotateDerived.
+//     The "you forgot this checkout" signal.
 //   - "no origin" — surfaces a repo that's never been pushed anywhere.
 //   - "problem" — when Repo.Err is set.
 //
@@ -49,11 +57,14 @@ func Highlights(r Repo) []string {
 	if r.StashCount > 0 {
 		out = append(out, pluralize(r.StashCount, "stash", "stashes"))
 	}
-	if r.Stale {
+	if r.Stale && !r.LaggingWorktree {
 		out = append(out, "stale")
 	}
 	if r.WorktreeCount > 1 {
 		out = append(out, "linked worktree")
+	}
+	if r.LaggingWorktree {
+		out = append(out, "lagging worktree")
 	}
 	if r.OriginURL == "" && r.Kind != KindBare {
 		out = append(out, "no origin")

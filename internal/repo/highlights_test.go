@@ -75,6 +75,38 @@ func TestHighlights_StaleAndLinkedWorktree(t *testing.T) {
 	}
 }
 
+func TestHighlights_LaggingSuppressesStale(t *testing.T) {
+	// A worktree with commits can only lag by also being absolutely
+	// stale — emitting both labels would double-mark the same row.
+	// "lagging worktree" is the stronger signal and stands alone.
+	r := repo.Repo{
+		Path: "/p", Kind: repo.KindRepo, OriginURL: "x",
+		Stale: true, WorktreeCount: 3, LaggingWorktree: true,
+	}
+	got := repo.Highlights(r)
+	for _, s := range got {
+		if s == "stale" {
+			t.Errorf(`"stale" should be suppressed when "lagging worktree" applies; got %v`, got)
+		}
+	}
+	if !slices.Contains(got, "lagging worktree") {
+		t.Errorf(`expected "lagging worktree"; got %v`, got)
+	}
+}
+
+func TestHighlights_StaleWithoutLaggingStillEmits(t *testing.T) {
+	// ▲-only (project-wide cold; no standout sibling) — the existing
+	// behavior survives the suppression.
+	r := repo.Repo{
+		Path: "/p", Kind: repo.KindRepo, OriginURL: "x",
+		Stale: true,
+	}
+	got := repo.Highlights(r)
+	if !slices.Contains(got, "stale") {
+		t.Errorf(`expected "stale" without a lagging signal; got %v`, got)
+	}
+}
+
 func TestHighlights_NoOriginButBareIsExempt(t *testing.T) {
 	// A normal repo with no origin → "no origin". A bare repo without
 	// origin is not flagged (it's a hosting target, not a working repo).

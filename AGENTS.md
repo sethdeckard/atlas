@@ -92,7 +92,7 @@ internal/
     topdir.go                  # Root-aware top-dir helper
     languages.go               # Manifest detection (M4)
     activity.go                # ClassifyActivity (M4)
-    annotate.go                # AnnotateDerived: WorktreeCount/Stale/ActivityTier
+    annotate.go                # AnnotateDerived: WorktreeCount/Stale/ActivityTier + LaggingWorktree/PrimaryWorktree/WorktreeHasLaggingChild
     highlights.go              # Highlights: shared "interesting" labels
     status_warmcache_test.go   # bucket-2 invalidation tests
   scan/
@@ -210,10 +210,12 @@ testdata/
      `--cached` renders the last-cached value with stale-by-design
      semantics — same contract `Dirty` already has.
   3. **Transient** (`json:"-"`): `ActivityTier`, `Stale`,
-     `WorktreeCount`. Pure functions of persisted fields plus
-     config; populated by `repo.AnnotateDerived` over the **full
-     scoped repo set** (so `WorktreeCount` reflects sibling
-     worktrees even when filter hides them).
+     `WorktreeCount`, `LaggingWorktree`, `PrimaryWorktree`,
+     `WorktreeHasLaggingChild`. Pure functions of persisted fields
+     plus config; populated by `repo.AnnotateDerived` over the
+     **full scoped repo set** (so `WorktreeCount` and the
+     relative-lag check reflect sibling worktrees even when filter
+     hides them).
 - Adding a new derived signal: pick a bucket. If the value can drift
   without a git mtime change, it's bucket 2 — extend `UpdateStatus`.
   If it's a pure function of already-persisted fields plus config,

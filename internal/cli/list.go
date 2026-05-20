@@ -280,7 +280,14 @@ func flagString(r repo.Repo) string {
 			b.WriteRune('*')
 		}
 	}
-	if r.Stale {
+	// Suppress ▲ when ⊘ fires — ⊘ implies absolute-stale for a
+	// worktree with commits (math is unidirectional), so the pair
+	// would double-mark the same row. See internal/tui/table.go for
+	// the longer note kept beside the TUI mirror.
+	switch {
+	case r.LaggingWorktree:
+		b.WriteRune('⊘')
+	case r.Stale:
 		b.WriteRune('▲')
 	}
 	if r.Err != "" {

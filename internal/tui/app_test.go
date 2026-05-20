@@ -887,11 +887,17 @@ func TestGroup_CycleFromActivityVisitsAllModes(t *testing.T) {
 	if m.groupBy != "language" {
 		t.Fatalf("after second tab: groupBy=%s; want language", m.groupBy)
 	}
+	// tab → worktree.
+	out, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = out.(Model)
+	if m.groupBy != "worktree" {
+		t.Fatalf("after third tab: groupBy=%s; want worktree", m.groupBy)
+	}
 	// tab → none.
 	out, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = out.(Model)
 	if m.groupBy != "none" {
-		t.Fatalf("after third tab: groupBy=%s; want none", m.groupBy)
+		t.Fatalf("after fourth tab: groupBy=%s; want none", m.groupBy)
 	}
 	view = m.View()
 	if strings.Contains(view, "go (2)") {
@@ -901,7 +907,7 @@ func TestGroup_CycleFromActivityVisitsAllModes(t *testing.T) {
 	out, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = out.(Model)
 	if m.groupBy != "activity" {
-		t.Fatalf("after fourth tab: groupBy=%s; want activity (wrap)", m.groupBy)
+		t.Fatalf("after fifth tab: groupBy=%s; want activity (wrap)", m.groupBy)
 	}
 }
 

@@ -130,9 +130,10 @@ with a different persistence + refresh contract:
    `--cached` renders the last-cached value with stale-by-design
    semantics — the same contract `Dirty` already had.
 3. **Transient** (`json:"-"`) — `ActivityTier`, `Stale`,
-   `WorktreeCount`. Pure functions of persisted fields plus config
-   plus the full repo set. Populated by `repo.AnnotateDerived` on
-   every load.
+   `WorktreeCount`, plus the worktree-relative signals
+   (`LaggingWorktree`, `PrimaryWorktree`, `WorktreeHasLaggingChild`).
+   Pure functions of persisted fields plus config plus the full
+   repo set. Populated by `repo.AnnotateDerived` on every load.
 
 **Adding a new derived signal: pick a bucket.** If the value can
 drift without a git mtime change, it's bucket 2 — extend

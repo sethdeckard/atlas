@@ -30,6 +30,12 @@ type styles struct {
 	// are now being captured as a search query.
 	filterBarActive lipgloss.Style
 	statusMessage   lipgloss.Style
+	// laggingRow styles a linked-worktree row that is lagging behind
+	// its project (or absolute-stale) in the `worktree` grouping
+	// mode. Reuses the warning hue so a forgotten checkout stands out
+	// even when sort order scatters it — position no longer surfaces
+	// it in that view, the color does.
+	laggingRow    lipgloss.Style
 	detailPane    lipgloss.Style
 	detailHeader  lipgloss.Style
 	detailSection lipgloss.Style
@@ -97,6 +103,8 @@ func themeDefault() styles {
 			Padding(0, 1),
 		statusMessage: lipgloss.NewStyle().
 			Foreground(pwError),
+		laggingRow: lipgloss.NewStyle().
+			Foreground(pwWarning),
 		detailPane: lipgloss.NewStyle().
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(pwBorder).
@@ -158,6 +166,8 @@ func themeANSI() styles {
 			Padding(0, 1),
 		statusMessage: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("1")),
+		laggingRow: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("3")),
 		detailPane: lipgloss.NewStyle().
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("8")).

@@ -101,9 +101,10 @@ type Repo struct {
 	//      render. Stale-by-design on --cached, fresh on the warm path.
 	//
 	//   3. Transient (json:"-"), recomputed every launch:
-	//      ActivityTier/Stale/WorktreeCount. These are pure functions
-	//      of LastCommitAt + cfg.StaleDays + now (plus the full repo
-	//      set for WorktreeCount), so persisting them would just create
+	//      ActivityTier/Stale/WorktreeCount plus the worktree-relative
+	//      signals below. These are pure functions of LastCommitAt +
+	//      cfg.StaleDays + now (plus the scoped repo set for the
+	//      worktree signals), so persisting them would just create
 	//      cache-vs-config drift. Filled by repo.AnnotateDerived.
 	BehindOrigin   int      `json:"behind_origin"`            // commits behind upstream; -1 if no upstream
 	AheadOrigin    int      `json:"ahead_origin"`             // commits ahead of upstream; -1 if no upstream
@@ -116,6 +117,29 @@ type Repo struct {
 	ActivityTier  string `json:"-"` // "recent"|"active"|"cold"|"dormant"|"empty"
 	Stale         bool   `json:"-"`
 	WorktreeCount int    `json:"-"`
+
+	// Worktree-relative transient signals (bucket 3). Only meaningful
+	// when WorktreeCount > 1; computed by AnnotateDerived over the
+	// scoped repo set, so "lagging" is judged against the worktrees
+	// atlas can currently see (same scoping WorktreeCount already has).
+	//
+	// LaggingWorktree: this worktree's LastCommitAt is >= stale_days
+	// behind the project's freshest worktree (or it has no commits
+	// while a sibling does). The "you forgot this checkout" signal,
+	// independent of the absolute Stale flag.
+	//
+	// PrimaryWorktree: this row is the project's primary checkout
+	// (Path == PrimaryWorktreePath). The subtree root in the TUI
+	// worktree grouping mode; false for every solo repo.
+	//
+	// WorktreeHasLaggingChild: set on the primary row when any other
+	// worktree in its project is LaggingWorktree. Absolute-stale
+	// children that aren't relatively lagging don't count — a
+	// uniformly-old project means "this project is cold," not "you
+	// forgot something." Drives the rolled-up ⊘ on the anchor.
+	LaggingWorktree         bool `json:"-"`
+	PrimaryWorktree         bool `json:"-"`
+	WorktreeHasLaggingChild bool `json:"-"`
 
 	// Mtime fingerprints for cache invalidation. Zero values are stable
 	// for comparison when a file is missing. These fingerprints exist
