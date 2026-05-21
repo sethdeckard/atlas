@@ -5,6 +5,20 @@ All notable changes to atlas are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-05-21
+
+### Fixed
+
+- TUI rendered without colors when launched via the documented `cd`
+  shell wrapper (`target=$(command atlas --cd ...)`). Lipgloss's
+  default renderer was still bound to the wrapper's piped stdout
+  when styles were constructed, freezing them into the Ascii color
+  profile. atlas now rebinds the lipgloss renderer to `/dev/tty`
+  before any style is created, so the periwinkle theme renders the
+  same whether atlas is launched directly or through the wrapper.
+
+[0.2.1]: https://github.com/sethdeckard/atlas/releases/tag/v0.2.1
+
 ## [0.2.0] - 2026-05-20
 
 ### Added
