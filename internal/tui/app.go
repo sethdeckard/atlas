@@ -382,9 +382,8 @@ func (m Model) View() string {
 			recent = m.recentCommits[r.Path]
 			siblings = m.worktreeSiblings(r)
 		}
-		detail := padToHeight(
-			renderDetail(selected, recent, siblings, detailPaneWidth-3, m.styles),
-			bodyHeight)
+		detailContent := renderDetail(selected, recent, siblings, detailPaneWidth-3, m.styles)
+		detail := composeRightPane(detailContent, m.styles, bodyHeight)
 		body = lipgloss.JoinHorizontal(
 			lipgloss.Top,
 			lipgloss.NewStyle().Width(tableWidth).Render(tableBody),
@@ -414,6 +413,24 @@ func padToHeight(s string, h int) string {
 		return s
 	}
 	return s + strings.Repeat("\n", h-cur)
+}
+
+// composeRightPane lays out the detail-pane content with the flag
+// legend bottom-anchored beneath it when bodyHeight has room for
+// detail + at least one blank spacer + the full legend. If the budget
+// is tight (short terminal, content-heavy detail pane), the legend is
+// dropped entirely and the pane falls back to today's pad-to-fill
+// behavior — graceful collapse, no partial legend.
+func composeRightPane(detail string, s styles, bodyHeight int) string {
+	detailH := lipgloss.Height(detail)
+	if detailH+1+legendHeight > bodyHeight {
+		return padToHeight(detail, bodyHeight)
+	}
+	// blanks = visible empty rows between detail and legend. The
+	// separator string itself needs blanks+1 newlines: one to
+	// terminate detail's last line, plus one per blank row.
+	blanks := bodyHeight - detailH - legendHeight
+	return detail + strings.Repeat("\n", blanks+1) + renderLegend(s)
 }
 
 // renderStatusBar produces the top status bar block. Always plain
@@ -530,20 +547,67 @@ func (m Model) viewHelp(width int) string {
 		m.keys.HalfUp, m.keys.HalfDown,
 		m.keys.Filter, m.keys.FilterCancel,
 		m.keys.SortCycle, m.keys.SortReverse,
-		m.keys.GroupCycle,
-		m.keys.Enter, m.keys.CopyPath, m.keys.OpenOrigin,
-		m.keys.Refresh,
+		m.keys.GroupCycle, m.keys.CopyPath,
+		m.keys.OpenOrigin, m.keys.Refresh,
 		m.keys.Help, m.keys.Quit,
+		// Enter's desc ("cd into repo & exit") is the longest in the
+		// list — render it as the trailing solo row so its width
+		// never feeds back into either column's padding budget and
+		// stretches the overlay.
+		m.keys.Enter,
 	}
-	for _, kb := range rows {
-		k, desc := kb.Help().Key, kb.Help().Desc
-		fmt.Fprintf(&b, "  %-12s %s\n", k, desc)
+	// Column widths driven by actual help-text length, not fixed
+	// padding — keeps the 2-col layout as tight as the data allows,
+	// and lets us decide whether it fits the terminal before
+	// rendering. Paired (left, right) so the longest right-side desc
+	// is unbounded.
+	keyW, leftW, twoColW := helpColumnWidths(rows)
+	// helpOverlay = rounded border (2 cols) + Padding(1, 2) (4 cols)
+	// = 6 cols of chrome that the content has to share with the
+	// terminal width.
+	const helpBoxOverhead = 6
+	twoCol := width >= twoColW+helpBoxOverhead
+	// Bold the key with raw SGR codes rather than
+	// m.styles.hintKey.Render: lipgloss closes each styled segment
+	// with `\x1b[0m`, which would reset the helpOverlay's background
+	// mid-line and let the terminal default bleed through the
+	// descriptions. `\x1b[22m` turns off bold without disturbing the
+	// surrounding background.
+	const (
+		ansiBold    = "\x1b[1m"
+		ansiBoldOff = "\x1b[22m"
+	)
+	// Pad the key to its column width *before* styling so the bold
+	// escapes don't get counted toward fmt's width budget.
+	styledKey := func(k string, w int) string {
+		return ansiBold + fmt.Sprintf("%-*s", w, k) + ansiBoldOff
+	}
+	if twoCol {
+		for i := 0; i < len(rows); i += 2 {
+			left := rows[i]
+			if i+1 < len(rows) {
+				right := rows[i+1]
+				fmt.Fprintf(&b, "  %s %-*s %s %s\n",
+					styledKey(left.Help().Key, keyW), leftW, left.Help().Desc,
+					styledKey(right.Help().Key, keyW), right.Help().Desc)
+			} else {
+				fmt.Fprintf(&b, "  %s %s\n", styledKey(left.Help().Key, keyW), left.Help().Desc)
+			}
+		}
+	} else {
+		for _, kb := range rows {
+			fmt.Fprintf(&b, "  %s %s\n", styledKey(kb.Help().Key, keyW), kb.Help().Desc)
+		}
 	}
 	if len(m.warnings) > 0 {
 		b.WriteString("\nWarnings:\n")
 		for _, w := range m.warnings {
 			b.WriteString("  " + w + "\n")
 		}
+	}
+	b.WriteString("\nFlags:\n")
+	for _, line := range legendEntries() {
+		b.WriteString("  " + line + "\n")
 	}
 	b.WriteString("\nPress esc, q, or ? to close this help.")
 	box := m.styles.helpOverlay.Render(b.String())
@@ -552,6 +616,36 @@ func (m Model) viewHelp(width int) string {
 		height = 24
 	}
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// helpColumnWidths returns the (key, left-desc) column widths and the
+// total 2-col content width — driven by the longest key, longest
+// even-index (left-column) desc, and longest odd-index (right-column)
+// desc actually present in the keymap. The 2-col layout is:
+//
+//	"  " + key(keyW) + " " + desc(leftW) + " " + key(keyW) + " " + desc(rightW)
+//
+// twoColW counts those segments. viewHelp uses it to decide whether
+// the 2-col layout fits the terminal width — if not, it falls back to
+// a 1-col layout so the overlay never overruns the terminal edge.
+func helpColumnWidths(rows []key.Binding) (keyW, leftW, twoColW int) {
+	var rightW int
+	for i, kb := range rows {
+		help := kb.Help()
+		if w := lipgloss.Width(help.Key); w > keyW {
+			keyW = w
+		}
+		desc := lipgloss.Width(help.Desc)
+		switch {
+		case i%2 == 0 && desc > leftW:
+			leftW = desc
+		case i%2 == 1 && desc > rightW:
+			rightW = desc
+		}
+	}
+	// 2 (indent) + key + 1 + leftDesc + 1 + key + 1 + rightDesc
+	twoColW = 2 + keyW + 1 + leftW + 1 + keyW + 1 + rightW
+	return keyW, leftW, twoColW
 }
 
 // bottomBar renders the key hint row. The filter input lives on

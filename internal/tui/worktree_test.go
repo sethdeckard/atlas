@@ -181,9 +181,18 @@ func TestWorktreeView_RendersTreeAndMarkers(t *testing.T) {
 		t.Errorf("expected ⊘ lagging glyph for the forgotten worktree; got:\n%s", view)
 	}
 	// ⊘ suppresses ▲ on the same row, and this fixture's only
-	// stale repo is also lagging — so ▲ shouldn't render anywhere.
-	if strings.Contains(view, "▲") {
-		t.Errorf("▲ should be suppressed when ⊘ fires; got:\n%s", view)
+	// stale repo is also lagging — so ▲ shouldn't render in the
+	// table. The right-pane Flags legend always lists ▲ as a
+	// vocabulary entry, so scope the check to each line's
+	// pre-separator (table) half.
+	for _, line := range strings.Split(view, "\n") {
+		left := line
+		if i := strings.Index(line, "│"); i >= 0 {
+			left = line[:i]
+		}
+		if strings.Contains(left, "▲") {
+			t.Errorf("▲ should be suppressed when ⊘ fires; got line:\n%s\nfull view:\n%s", line, view)
+		}
 	}
 }
 

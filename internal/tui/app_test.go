@@ -1145,6 +1145,108 @@ func TestHelpOverlay_ToggleAndDismiss(t *testing.T) {
 	}
 }
 
+// The help overlay must list the flag glyphs so the ? affordance is
+// the canonical reference for what every column symbol means.
+func TestHelpOverlay_IncludesFlagsLegend(t *testing.T) {
+	m := newTestModel(t, []repo.Repo{
+		sampleRepo("alpha", "/r/alpha", "main", 1, false),
+	}, "/r")
+	m.width = 200
+	m.height = 40
+	m.showHelp = true
+
+	view := m.View()
+	if !strings.Contains(view, "Flags:") {
+		t.Errorf("expected 'Flags:' section in help overlay; got:\n%s", view)
+	}
+	for _, glyph := range []string{"*", "?", "▲", "⊘", "↑", "↓", "≡", "!"} {
+		if !strings.Contains(view, glyph) {
+			t.Errorf("help overlay missing glyph %q in flags section", glyph)
+		}
+	}
+}
+
+// At narrow widths (50–60 cols) the 2-col keybind layout would push
+// the help overlay past the terminal edge. viewHelp must fall back
+// to a 1-col layout so no rendered line exceeds the terminal width.
+func TestHelpOverlay_NarrowFallbackTo1Col(t *testing.T) {
+	m := newTestModel(t, []repo.Repo{
+		sampleRepo("alpha", "/r/alpha", "main", 1, false),
+	}, "/r")
+	m.width = 55
+	m.height = 40
+	m.showHelp = true
+
+	view := m.View()
+	for _, line := range strings.Split(view, "\n") {
+		if w := lipgloss.Width(line); w > m.width {
+			t.Errorf("help overlay line wider than terminal (%d > %d): %q",
+				w, m.width, line)
+		}
+	}
+	// All keybinds still present after collapsing to 1 column.
+	for _, want := range []string{"k", "j", "ctrl+u", "ctrl+d", "/", "tab", "enter"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("help overlay missing key %q in 1-col fallback", want)
+		}
+	}
+}
+
+// The legend bottom-anchors below the detail pane when there's room.
+// At 200×40 the right column is tall enough for detail content + a
+// blank spacer + the 5-line legend.
+func TestView_LegendDocksWithDetailPane(t *testing.T) {
+	m := newTestModel(t, []repo.Repo{
+		sampleRepo("alpha", "/r/alpha", "main", 1, false),
+	}, "/r")
+	m.width = 200
+	m.height = 40
+	m.scanning = false
+
+	view := m.View()
+	if !strings.Contains(view, "▸ Flags") {
+		t.Errorf("expected '▸ Flags' legend header in view at 200x40; got:\n%s", view)
+	}
+	for _, entry := range []string{"dirty", "untracked", "stale", "lagging", "ahead", "behind", "stashed", "error"} {
+		if !strings.Contains(view, entry) {
+			t.Errorf("legend missing entry %q in view at 200x40", entry)
+		}
+	}
+}
+
+// A short terminal can't fit detail + spacer + legend; the legend
+// must collapse entirely (not partially) so the detail pane keeps
+// its space.
+func TestView_LegendCollapsesWhenTight(t *testing.T) {
+	m := newTestModel(t, []repo.Repo{
+		sampleRepo("alpha", "/r/alpha", "main", 1, false),
+	}, "/r")
+	m.width = 200
+	m.height = 12
+	m.scanning = false
+
+	view := m.View()
+	if strings.Contains(view, "▸ Flags") {
+		t.Errorf("legend should be hidden when bodyHeight too small for detail + legend; got:\n%s", view)
+	}
+}
+
+// Single-pane mode (<100 cols) hides the detail pane entirely; the
+// legend rides along with it so it must be hidden too.
+func TestView_LegendAbsentInSinglePane(t *testing.T) {
+	m := newTestModel(t, []repo.Repo{
+		sampleRepo("alpha", "/r/alpha", "main", 1, false),
+	}, "/r")
+	m.width = 80
+	m.height = 40
+	m.scanning = false
+
+	view := m.View()
+	if strings.Contains(view, "▸ Flags") {
+		t.Errorf("legend should not render below the detail-pane threshold; got:\n%s", view)
+	}
+}
+
 func TestRecentCommitsTick_SupersededIsDropped(t *testing.T) {
 	r := sampleRepo("alpha", "/r/alpha", "main", 1, false)
 	m := newTestModel(t, []repo.Repo{r}, "/r")

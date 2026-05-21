@@ -65,7 +65,7 @@ func newKeyMap() keyMap {
 		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
-			key.WithHelp("enter", "cd into repo and exit"),
+			key.WithHelp("enter", "cd into repo & exit"),
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
