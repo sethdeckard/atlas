@@ -5,6 +5,42 @@ All notable changes to atlas are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-20
+
+### Added
+
+- New `worktree` grouping mode (in the `tab` cycle) that clusters a
+  project's linked worktrees under its primary checkout as a tree:
+  the primary anchors a subtree, linked worktrees render as
+  indented children with `├─` / `└─` connectors. The parent stays
+  above its children under every sort key.
+- **Lagging-worktree signal** — `⊘` flag and `lagging worktree`
+  highlight on a checkout whose `LastCommitAt` is ≥ `stale_days`
+  behind its project's freshest worktree (or has no commits while
+  a sibling does). Reuses `stale_days`; no new config. `⊘`
+  suppresses `▲` on the same row since lagging implies absolute
+  stale.
+- Status-bar `N lagging` count alongside the existing
+  dirty / ahead / behind / stash / stale parts.
+- Detail-pane **worktree roster** — siblings of the selected
+  project listed with branch · relative-last-commit · activity
+  tier, plus `▲` / `⊘` flags and a `(primary)` tag. Surfaces the
+  full project across every grouping mode, not just `worktree`.
+- **Rolled-up lagging marker** on a project's primary row when any
+  child worktree lags, so a forgotten checkout scrolled off-screen
+  is still discoverable from the anchor.
+- **Docked flag legend** in the bottom-right of the detail pane —
+  a permanent key for the column glyphs (`* ? ▲ ⊘ ! ↑N ↓N ≡N`).
+  Collapses when the terminal is too short for detail + spacer +
+  legend.
+- `?` help overlay now lists the flag glyphs and renders keybinds
+  in two columns when the terminal is wide enough, falling back to
+  one column on narrow widths so the overlay never overruns the
+  terminal edge. Keys are bolded for visual separation from their
+  descriptions.
+
+[0.2.0]: https://github.com/sethdeckard/atlas/releases/tag/v0.2.0
+
 ## [0.1.0] - 2026-05-14
 
 First public release. atlas is a smart, automatic map of every Git
