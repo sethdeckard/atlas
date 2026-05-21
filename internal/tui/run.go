@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/term"
 
 	"github.com/sethdeckard/atlas/internal/cache"
@@ -55,6 +56,24 @@ func SetPromptForRoot(f func(ctx context.Context, configPath string, cfg config.
 // the CLI). It loads the cache + config synchronously so the first View
 // renders instantly, then hands control to Bubble Tea.
 func Run(ctx context.Context, rootArg string) error {
+	// Open /dev/tty and rebind lipgloss's default renderer to it
+	// BEFORE any tui.New() / textinput / lipgloss.NewStyle() runs.
+	// lipgloss.NewStyle() captures the current default renderer at
+	// the moment of construction (stored as s.r) — once captured,
+	// later SetDefaultRenderer calls don't reach back into existing
+	// styles. So if a shell `cd` wrapper has piped stdout, the
+	// default renderer would detect Ascii and every style would
+	// freeze that profile in. Doing the rebind first keeps the
+	// styles' captured renderer aligned with the actual terminal.
+	// On Windows (no /dev/tty) and on hosts without a controlling
+	// terminal we fall back to bubbletea's defaults.
+	var tty *os.File
+	if t, ttyErr := os.OpenFile("/dev/tty", os.O_RDWR, 0); ttyErr == nil {
+		tty = t
+		defer tty.Close()
+		lipgloss.SetDefaultRenderer(lipgloss.NewRenderer(tty))
+	}
+
 	cfgPath, err := config.DefaultPath()
 	if err != nil {
 		return err
@@ -96,12 +115,8 @@ func Run(ctx context.Context, rootArg string) error {
 	// stdin/stdout are connected. This keeps stdout exclusively for
 	// the cdTarget print below, so a shell wrapper running
 	// `target=$(command atlas --cd ...)` can capture only the path.
-	// On Windows (no /dev/tty) and on hosts without a controlling
-	// terminal we fall back to bubbletea's defaults.
 	opts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithContext(ctx)}
-	tty, ttyErr := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if ttyErr == nil {
-		defer tty.Close()
+	if tty != nil {
 		opts = append(opts, tea.WithInput(tty), tea.WithOutput(tty))
 	}
 
