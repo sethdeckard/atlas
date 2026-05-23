@@ -5,6 +5,22 @@ All notable changes to atlas are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-05-23
+
+### Fixed
+
+- Repositories deleted from disk while atlas was running lingered as
+  tombstoned `!` / `—` rows after pressing `r` to refresh. The refresh
+  re-read the cached path set in place without re-scanning, so a
+  deleted repo was re-read into an error record instead of being
+  pruned. `r` now runs a fresh filesystem discovery — the same path
+  launch and `atlas refresh` use — so deleted repos drop out and
+  newly-added ones appear. Any in-flight refresh is invalidated the
+  moment `r` is pressed so a late worker result can't reinsert a repo
+  the rediscovery just pruned.
+
+[0.2.2]: https://github.com/sethdeckard/atlas/releases/tag/v0.2.2
+
 ## [0.2.1] - 2026-05-21
 
 ### Fixed
