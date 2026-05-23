@@ -679,19 +679,133 @@ func TestStartFullRefresh_BumpsGenAndDispatches(t *testing.T) {
 	}
 	m := newTestModel(t, repos, "/r")
 	m.refreshGen = 5
-	out, cmd := m.startFullRefresh(true)
+	// Simulate an in-flight refresh so we can assert startFullRefresh
+	// invalidates it (cancels the worker context, bumps the gen) before
+	// dispatching the rediscovery.
+	cancelled := false
+	m.refreshCancel = func() { cancelled = true }
+
+	// startFullRefresh dispatches a forced discovery and immediately
+	// invalidates any prior refresh; refreshTotal is established later in
+	// handleDiscovered.
+	out, cmd := m.startFullRefresh()
 	mm := out.(Model)
-	if mm.refreshGen != 6 {
-		t.Errorf("startFullRefresh should bump refreshGen by 1; got %d", mm.refreshGen)
-	}
 	if !mm.refreshing {
 		t.Errorf("expected refreshing=true after startFullRefresh")
+	}
+	if cmd == nil {
+		t.Fatalf("expected a discover cmd")
+	}
+	if !cancelled {
+		t.Errorf("startFullRefresh should cancel the in-flight refresh context")
+	}
+	if mm.refreshCancel != nil {
+		t.Errorf("startFullRefresh should clear refreshCancel after cancelling")
+	}
+	if mm.refreshGen != 6 {
+		t.Errorf("startFullRefresh should bump refreshGen to invalidate prior results; got %d", mm.refreshGen)
+	}
+
+	// The forced discovery lands: handleDiscovered force-refreshes every
+	// surviving repo, bumping the gen again for the read phase and setting
+	// refreshTotal to the full scoped count.
+	out, cmd = mm.Update(discoveredMsg{paths: []string{"/r/alpha", "/r/beta"}, forceFull: true})
+	mm = out.(Model)
+	if mm.refreshGen != 7 {
+		t.Errorf("handleDiscovered should bump refreshGen for the read phase; got %d", mm.refreshGen)
 	}
 	if mm.refreshTotal != 2 {
 		t.Errorf("expected refreshTotal=2; got %d", mm.refreshTotal)
 	}
 	if cmd == nil {
 		t.Errorf("expected a refresh start cmd")
+	}
+}
+
+// TestStartFullRefresh_StaleWorkerCannotResurrectPruned guards the window
+// where r is pressed while an earlier refresh is still streaming and the
+// forced scan finds nothing left on disk. Because startFullRefresh bumps
+// the generation immediately, a late repoRefreshedMsg from the prior
+// refresh is dropped instead of reinserting a repo Reconcile just pruned.
+func TestStartFullRefresh_StaleWorkerCannotResurrectPruned(t *testing.T) {
+	repos := []repo.Repo{
+		sampleRepo("alpha", "/r/alpha", "main", 1, false),
+		sampleRepo("beta", "/r/beta", "main", 2, false),
+	}
+	m := newTestModel(t, repos, "/r")
+	m.refreshGen = 3 // the in-flight refresh's generation
+
+	// Press r: invalidates gen 3 and dispatches a forced discovery.
+	out, _ := m.startFullRefresh()
+	mm := out.(Model)
+
+	// The scan comes back empty (everything deleted): Reconcile prunes
+	// every entry and handleDiscovered takes the "nothing to do" branch
+	// (no further gen bump).
+	out, _ = mm.Update(discoveredMsg{paths: nil, forceFull: true})
+	mm = out.(Model)
+	if len(mm.cache.Repos) != 0 {
+		t.Fatalf("expected all repos pruned; cache still has %d", len(mm.cache.Repos))
+	}
+
+	// A straggler result from the superseded refresh (gen 3) arrives. It
+	// must be dropped, not reinserted into the freshly-pruned cache.
+	out, _ = mm.Update(repoRefreshedMsg{gen: 3, repo: sampleRepo("alpha", "/r/alpha", "main", 1, false)})
+	mm = out.(Model)
+	if _, ok := mm.cache.Repos["/r/alpha"]; ok {
+		t.Errorf("stale worker result resurrected pruned repo /r/alpha")
+	}
+	if len(mm.cache.Repos) != 0 {
+		t.Errorf("cache should remain empty; got %d entries", len(mm.cache.Repos))
+	}
+}
+
+// TestStartFullRefresh_PrunesDeletedRepos is the regression guard for the
+// tombstone bug: a repo deleted from disk while atlas is running must be
+// dropped from the cache and the table on the next r refresh — not re-read
+// into an Err record that lingers as a "!"/"—" row. The fix routes r
+// through a fresh discovery so handleDiscovered's Reconcile prunes
+// gone-from-disk entries (and picks up newly-added ones).
+func TestStartFullRefresh_PrunesDeletedRepos(t *testing.T) {
+	repos := []repo.Repo{
+		sampleRepo("alpha", "/r/alpha", "main", 1, false),
+		sampleRepo("beta", "/r/beta", "main", 2, false),
+		sampleRepo("gamma", "/r/gamma", "main", 3, false),
+	}
+	m := newTestModel(t, repos, "/r")
+	m.width = 80 // single-pane: no detail/legend, so "!" only appears on Err rows
+	m.height = 20
+
+	// Press r → forced discovery. beta has been deleted from disk and a new
+	// delta has appeared, so the scan returns alpha, gamma, delta (no beta).
+	out, _ := m.startFullRefresh()
+	out, _ = out.(Model).Update(discoveredMsg{
+		paths:     []string{"/r/alpha", "/r/gamma", "/r/delta"},
+		forceFull: true,
+	})
+	mm := out.(Model)
+
+	// The deleted repo is pruned from the cache...
+	if _, ok := mm.cache.Repos["/r/beta"]; ok {
+		t.Errorf("deleted repo /r/beta should be pruned from the cache")
+	}
+	// ...and from the rendered table (rebuildRepos ran inside handleDiscovered).
+	for _, r := range mm.repos {
+		if r.Path == "/r/beta" {
+			t.Errorf("deleted repo /r/beta should not be in m.repos")
+		}
+	}
+	view := mm.View()
+	if strings.Contains(view, "beta") {
+		t.Errorf("deleted repo should not appear in the view; got:\n%s", view)
+	}
+	if strings.Contains(view, "!") {
+		t.Errorf("no tombstoned error row expected; got:\n%s", view)
+	}
+	// The newly-discovered delta is force-queued for a full read, so the
+	// refresh covers all three surviving/new paths (not the two survivors).
+	if mm.refreshTotal != 3 {
+		t.Errorf("refreshTotal = %d; want 3 (survivors + newly-discovered repo)", mm.refreshTotal)
 	}
 }
 
@@ -1048,10 +1162,22 @@ func TestStartFullRefresh_RefreshesAllUnderRoot(t *testing.T) {
 	out, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = out.(Model)
 
-	// Trigger startFullRefresh: refreshTotal must reflect the *unfiltered*
-	// scoped set (3 repos), not the currently visible 1.
-	upd, cmd := m.startFullRefresh(true)
+	// Trigger startFullRefresh: it dispatches a forced discovery rather
+	// than reading the visible set.
+	upd, cmd := m.startFullRefresh()
 	mm := upd.(Model)
+	if cmd == nil {
+		t.Fatalf("expected a discover cmd")
+	}
+
+	// A real scan returns every repo under root regardless of the active
+	// filter; model that by feeding all three discovered paths. refreshTotal
+	// must reflect the *unfiltered* scoped set (3 repos), not the visible 1.
+	upd, cmd = mm.Update(discoveredMsg{
+		paths:     []string{"/r/alpha", "/r/beta", "/r/gamma"},
+		forceFull: true,
+	})
+	mm = upd.(Model)
 	if mm.refreshTotal != 3 {
 		t.Errorf("refreshTotal = %d; want 3 (refresh-all should ignore the active filter)", mm.refreshTotal)
 	}

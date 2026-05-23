@@ -15,11 +15,13 @@ import (
 // discoverCmd walks the filesystem and reports the discovered paths.
 // ctx is the program-level context — cancellation (e.g. from a SIGINT
 // caught by signal.NotifyContext or from program shutdown) terminates the
-// walk early instead of finishing a multi-thousand-dir scan.
-func discoverCmd(ctx context.Context, root string, opts scan.Options) tea.Cmd {
+// walk early instead of finishing a multi-thousand-dir scan. forceFull is
+// echoed onto discoveredMsg so handleDiscovered knows whether to force a
+// full re-read (the r refresh) or run the incremental launch path.
+func discoverCmd(ctx context.Context, root string, opts scan.Options, forceFull bool) tea.Cmd {
 	return func() tea.Msg {
 		paths, err := scan.Discover(ctx, root, opts)
-		return discoveredMsg{paths: paths, err: err}
+		return discoveredMsg{paths: paths, err: err, forceFull: forceFull}
 	}
 }
 

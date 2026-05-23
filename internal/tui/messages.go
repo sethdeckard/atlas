@@ -6,9 +6,15 @@ import "github.com/sethdeckard/atlas/internal/repo"
 // refresh messages lets the model drop superseded refreshes (e.g. user
 // pressed `R` while an earlier refresh was still streaming).
 
+// discoveredMsg carries the result of a filesystem scan. forceFull is
+// set when the discovery was triggered by the user's "refresh all" (r)
+// rather than the incremental launch scan: it flows into Reconcile's
+// fresh parameter so every surviving repo is force re-read (and gone
+// entries pruned) instead of only the mtime-stale ones.
 type discoveredMsg struct {
-	paths []string
-	err   error
+	paths     []string
+	err       error
+	forceFull bool
 }
 
 type refreshStartedMsg struct {

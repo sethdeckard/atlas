@@ -200,13 +200,20 @@ func New(ctx context.Context, c *cache.Cache, cachePath string, cfg config.Confi
 // through a message lets Update mutate the live model.
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		discoverCmd(m.ctx, m.root, scan.Options{
-			SkipBaseNames: m.cfg.SkipBaseNames,
-			SkipAbsPaths:  m.cfg.SkipAbsPaths,
-			MaxDepth:      m.cfg.MaxDepth,
-		}),
+		discoverCmd(m.ctx, m.root, m.scanOptions(), false),
 		func() tea.Msg { return initialLoadMsg{} },
 	)
+}
+
+// scanOptions builds the scan.Options from config. Shared by the launch
+// discovery (Init) and the r-triggered refresh (startFullRefresh) so the
+// two scans never drift on which dirs to skip or how deep to walk.
+func (m Model) scanOptions() scan.Options {
+	return scan.Options{
+		SkipBaseNames: m.cfg.SkipBaseNames,
+		SkipAbsPaths:  m.cfg.SkipAbsPaths,
+		MaxDepth:      m.cfg.MaxDepth,
+	}
 }
 
 // Update implements tea.Model.
@@ -800,7 +807,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleEnter()
 
 	case key.Matches(msg, m.keys.Refresh):
-		return m.startFullRefresh(true)
+		return m.startFullRefresh()
 	}
 	return m, nil
 }
@@ -1141,8 +1148,10 @@ func (m Model) handleDiscovered(msg discoveredMsg) (tea.Model, tea.Cmd) {
 	// classification both the CLI pipeline and the TUI need on every
 	// discover. TUI carries full Repo values into the status pass (the
 	// status updater needs the cached fields), so we materialize the
-	// repos here from the statusOnly paths.
-	stale, statusOnly := m.cache.Reconcile(m.root, msg.paths, false)
+	// repos here from the statusOnly paths. forceFull (the r refresh)
+	// passes through as Reconcile's fresh flag so every surviving repo is
+	// force re-read; launch discovery (forceFull=false) stays incremental.
+	stale, statusOnly := m.cache.Reconcile(m.root, msg.paths, msg.forceFull)
 	statusPass := make([]repo.Repo, 0, len(statusOnly))
 	for _, p := range statusOnly {
 		if r, ok := m.cache.Repos[p]; ok {
@@ -1155,8 +1164,14 @@ func (m Model) handleDiscovered(msg discoveredMsg) (tea.Model, tea.Cmd) {
 		// Discovery is final and no refresh work follows — what's in
 		// m.repos right now is the whole story. Clear scanning so the
 		// View switches from "Discovering..." to either the table or
-		// the empty-state hint.
+		// the empty-state hint. Also clear the refresh flags: an r
+		// refresh that discovers zero repos (e.g. every repo deleted)
+		// set refreshing=true up front, so without this the status bar
+		// would stay stuck on "[refreshing]".
 		m.scanning = false
+		m.refreshing = false
+		m.refreshTotal = 0
+		m.refreshDoneCount = 0
 		return m, rebuildCmd
 	}
 	m.pendingStatusPass = statusPass
@@ -1170,24 +1185,34 @@ func (m Model) handleDiscovered(msg discoveredMsg) (tea.Model, tea.Cmd) {
 	return mm, tea.Batch(rebuildCmd, statusCmd)
 }
 
-func (m Model) startFullRefresh(force bool) (tea.Model, tea.Cmd) {
-	// "Refresh all" means every repo under the active root, not just the
-	// rows currently visible — m.repos is the filter+sort+group view, so
-	// drawing paths from it would skip hidden repos when a filter is set
-	// (and degenerate to a zero-item refresh on a no-match query).
-	// Hidden repos still need their cache entries refreshed.
-	scoped := m.scopedRepos()
-	paths := make([]string, 0, len(scoped))
-	for _, r := range scoped {
-		paths = append(paths, r.Path)
+func (m Model) startFullRefresh() (tea.Model, tea.Cmd) {
+	// "Refresh all" re-scans the filesystem rather than re-reading the
+	// cached path set: a fresh discovery is what lets handleDiscovered's
+	// Reconcile prune repos deleted since launch (otherwise they'd be
+	// re-read into Err records and linger as tombstoned rows) and pick up
+	// newly-added ones. forceFull flows into Reconcile's fresh parameter so
+	// every surviving repo is force re-read, not just the mtime-stale ones.
+	//
+	// Invalidate any in-flight refresh up front: cancel its worker context
+	// and bump the generation so superseded repoRefreshedMsg are dropped on
+	// arrival. Without this, results from the prior refresh could land
+	// during the discovery window — and if the forced scan finds nothing
+	// (the "nothing to do" branch never reaches beginRefreshPhase) a stale
+	// worker result would reinsert a repo that Reconcile just pruned.
+	// refreshTotal is established later in handleDiscovered/beginRefreshPhase;
+	// setting refreshing here gives immediate status-bar feedback during the
+	// brief discovery window.
+	if m.refreshCancel != nil {
+		m.refreshCancel()
+		m.refreshCancel = nil
 	}
-	if !force && len(paths) == 0 {
-		return m, nil
-	}
+	m.refreshGen++
 	m.pendingStatusPass = nil
-	var ctx context.Context
-	m, ctx = m.beginRefreshPhase(len(paths))
-	return m, startRefreshCmd(ctx, m.refreshGen, paths)
+	m.activeCh = nil
+	m.refreshing = true
+	m.refreshDoneCount = 0
+	m.refreshTotal = 0
+	return m, discoverCmd(m.ctx, m.root, m.scanOptions(), true)
 }
 
 func (m Model) handleRefreshStarted(msg refreshStartedMsg) (tea.Model, tea.Cmd) {
