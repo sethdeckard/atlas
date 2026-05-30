@@ -329,9 +329,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // hidden — narrow terminals fall back to single-pane (M2 layout).
 const detailPaneMinWidth = 100
 
-// detailPaneWidth is the rendered width of the right-pane detail view
-// when shown.
-const detailPaneWidth = 36
+// detailPaneFloor is the minimum rendered width of the detail pane —
+// the pane never shrinks below this even though it grows with the
+// terminal. Keeps the labeled rows readable on the narrowest split.
+const detailPaneFloor = 36
+
+// detailPaneWidth returns the responsive width of the right pane. It ramps
+// from 40% of the terminal at 150 cols up to a 50% ceiling at 300 cols,
+// holds at 50% beyond that, and never drops below detailPaneFloor on
+// narrow windows.
+//
+// The ramp is the line through (150, 60) and (300, 150): 3w/5 − 30. The
+// w/2 cap takes over at exactly 300 (3w/5 − 30 > w/2 ⇔ w > 300), so the
+// pane never exceeds half the screen.
+func detailPaneWidth(termWidth int) int {
+	w := termWidth*3/5 - 30
+	if half := termWidth / 2; w > half {
+		w = half // never exceed 50%
+	}
+	if w < detailPaneFloor {
+		return detailPaneFloor
+	}
+	return w
+}
 
 // View renders the screen: status bar, body (table ± detail pane),
 // bottom bar (hint or filter prompt). When the help overlay is up it
@@ -347,7 +367,7 @@ func (m Model) View() string {
 		return m.viewHelp(width)
 	}
 
-	tableWidth, showDetail := paneWidths(width)
+	tableWidth, detailW, showDetail := paneWidths(width)
 	var tableBody string
 	switch {
 	case m.selected >= 0:
@@ -389,12 +409,12 @@ func (m Model) View() string {
 			recent = m.recentCommits[r.Path]
 			siblings = m.worktreeSiblings(r)
 		}
-		detailContent := renderDetail(selected, recent, siblings, detailPaneWidth-3, m.styles)
+		detailContent := renderDetail(selected, recent, siblings, detailW-3, m.styles)
 		detail := composeRightPane(detailContent, m.styles, bodyHeight)
 		body = lipgloss.JoinHorizontal(
 			lipgloss.Top,
 			lipgloss.NewStyle().Width(tableWidth).Render(tableBody),
-			m.styles.detailPane.Width(detailPaneWidth).Render(detail),
+			m.styles.detailPane.Width(detailW).Render(detail),
 		)
 	} else {
 		body = tableBody
@@ -533,13 +553,15 @@ func emptyStateMessage(root string, maxDepth int) string {
 	)
 }
 
-// paneWidths returns the table width and whether the detail pane should
-// be rendered. Below detailPaneMinWidth we collapse to a single pane.
-func paneWidths(termWidth int) (tableWidth int, showDetail bool) {
+// paneWidths returns the table width, the detail-pane width, and whether
+// the detail pane should be rendered. Below detailPaneMinWidth we collapse
+// to a single pane (detailWidth 0).
+func paneWidths(termWidth int) (tableWidth, detailWidth int, showDetail bool) {
 	if termWidth < detailPaneMinWidth {
-		return termWidth, false
+		return termWidth, 0, false
 	}
-	return termWidth - detailPaneWidth, true
+	dw := detailPaneWidth(termWidth)
+	return termWidth - dw, dw, true
 }
 
 // viewHelp renders a centered help overlay listing every keymap entry.

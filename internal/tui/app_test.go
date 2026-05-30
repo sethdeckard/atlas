@@ -1373,6 +1373,44 @@ func TestView_LegendAbsentInSinglePane(t *testing.T) {
 	}
 }
 
+func TestDetailPaneWidth(t *testing.T) {
+	cases := []struct {
+		termWidth int
+		want      int
+	}{
+		{termWidth: 100, want: 36},  // 3w/5-30 below floor → floor
+		{termWidth: 120, want: 42},  // 120*3/5 - 30
+		{termWidth: 150, want: 60},  // target: exactly 40%
+		{termWidth: 200, want: 90},  // 45%
+		{termWidth: 245, want: 117}, // 245*3/5 - 30
+		{termWidth: 300, want: 150}, // ramp meets the 50% ceiling
+		{termWidth: 400, want: 200}, // held at 50%
+		{termWidth: 600, want: 300}, // held at 50%
+	}
+	for _, c := range cases {
+		if got := detailPaneWidth(c.termWidth); got != c.want {
+			t.Errorf("detailPaneWidth(%d) = %d, want %d", c.termWidth, got, c.want)
+		}
+		tableWidth, detailWidth, showDetail := paneWidths(c.termWidth)
+		if !showDetail {
+			t.Errorf("paneWidths(%d): expected showDetail at/above threshold", c.termWidth)
+		}
+		if detailWidth != c.want {
+			t.Errorf("paneWidths(%d) detailWidth = %d, want %d", c.termWidth, detailWidth, c.want)
+		}
+		if tableWidth != c.termWidth-c.want {
+			t.Errorf("paneWidths(%d) tableWidth = %d, want %d", c.termWidth, tableWidth, c.termWidth-c.want)
+		}
+	}
+
+	// Below the show/hide threshold the table takes the full width and
+	// the detail pane is suppressed.
+	tableWidth, detailWidth, showDetail := paneWidths(80)
+	if showDetail || detailWidth != 0 || tableWidth != 80 {
+		t.Errorf("paneWidths(80) = (%d, %d, %v), want (80, 0, false)", tableWidth, detailWidth, showDetail)
+	}
+}
+
 func TestRecentCommitsTick_SupersededIsDropped(t *testing.T) {
 	r := sampleRepo("alpha", "/r/alpha", "main", 1, false)
 	m := newTestModel(t, []repo.Repo{r}, "/r")
