@@ -5,6 +5,20 @@ All notable changes to atlas are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-05-30
+
+### Changed
+
+- The detail pane is now responsive to terminal width instead of a
+  fixed 36 columns. It ramps from 40% of the width at 150 cols up to
+  a 50% ceiling at 300 cols, holds at 50% on wider screens, and
+  floors at 36 columns so it never shrinks below its previous size.
+  Wide terminals no longer leave the right side mostly empty, and the
+  origin URL and other long rows have room to breathe. Below 100 cols
+  the single-pane fallback is unchanged.
+
+[0.2.3]: https://github.com/sethdeckard/atlas/releases/tag/v0.2.3
+
 ## [0.2.2] - 2026-05-23
 
 ### Fixed
