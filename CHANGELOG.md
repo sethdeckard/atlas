@@ -5,6 +5,23 @@ All notable changes to atlas are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-09-11
+
+### Fixed
+
+- Large worktree rosters no longer make the TUI taller than the
+  terminal. The overflow pushed the status bar off-screen and made
+  the left table look like it had scrolled to the wrong position.
+
+  The detail pane stops the roster at the available height and
+  reports the omitted count when it fits. Wrapped lines count against
+  that height. A final cap keeps the pane within the table viewport.
+
+  Recent commits remain visible when the fixed detail fields leave
+  room for them.
+
+[0.2.4]: https://github.com/sethdeckard/atlas/releases/tag/v0.2.4
+
 ## [0.2.3] - 2026-05-30
 
 ### Changed
