@@ -51,18 +51,18 @@ type Model struct {
 	// handleDiscovered. Drives the cold-cache message in View so users
 	// see "Discovering..." instead of an empty table during the first
 	// scan.
-	scanning bool
+	scanning     bool
 	scrollOffset int
 	width        int
 	height       int
 
 	// M3: filter / sort / group state.
-	filterText    string
-	filterMode    bool
-	filterInput   textinput.Model
-	sortBy   string // last_commit_at | repo
-	sortDesc bool
-	groupBy  string // top_dir | none (M4 widens to activity | language)
+	filterText  string
+	filterMode  bool
+	filterInput textinput.Model
+	sortBy      string // last_commit_at | repo
+	sortDesc    bool
+	groupBy     string // top_dir | none (M4 widens to activity | language)
 
 	// Refresh state machine.
 	refreshGen         int
@@ -409,7 +409,7 @@ func (m Model) View() string {
 			recent = m.recentCommits[r.Path]
 			siblings = m.worktreeSiblings(r)
 		}
-		detailContent := renderDetail(selected, recent, siblings, detailW-3, m.styles)
+		detailContent := renderDetailWithinHeight(selected, recent, siblings, detailW-3, bodyHeight, m.styles)
 		detail := composeRightPane(detailContent, m.styles, bodyHeight)
 		body = lipgloss.JoinHorizontal(
 			lipgloss.Top,
@@ -450,6 +450,13 @@ func padToHeight(s string, h int) string {
 // behavior — graceful collapse, no partial legend.
 func composeRightPane(detail string, s styles, bodyHeight int) string {
 	detailH := lipgloss.Height(detail)
+	if detailH > bodyHeight {
+		// The roster renderer normally keeps detail within budget, but
+		// retain a hard cap for narrow terminals and unexpectedly tall
+		// metadata. A right pane must never make the joined body taller
+		// than the table viewport.
+		return lipgloss.NewStyle().MaxHeight(bodyHeight).Render(detail)
+	}
 	if detailH+1+legendHeight > bodyHeight {
 		return padToHeight(detail, bodyHeight)
 	}
@@ -1772,4 +1779,3 @@ func (m Model) hintBar() string {
 	}
 	return strings.Join(parts, "  ")
 }
-

@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sethdeckard/atlas/internal/repo"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // wtBase is the fixed "now" the worktree tests reckon recency against.
@@ -258,5 +261,115 @@ func TestRenderDetail_WorktreeRoster(t *testing.T) {
 	}
 	if strings.Contains(out, "▲") {
 		t.Errorf("▲ should be suppressed when ⊘ fires; got:\n%s", out)
+	}
+}
+
+// A large worktree family must not make the joined panes taller than the
+// terminal. The roster abbreviates itself and preserves Recent commits so
+// the right pane remains useful instead of pushing the screen header away.
+func TestWorktreeView_OversizedRosterFitsTerminal(t *testing.T) {
+	const worktreeCount = 44
+	const commonGitDir = "/projects/go/P/.git"
+	repos := make([]repo.Repo, 0, worktreeCount)
+	for i := 0; i < worktreeCount; i++ {
+		path := "/projects/go/P"
+		name := "P"
+		if i > 0 {
+			path = fmt.Sprintf("/projects/go/P-%02d", i)
+			name = fmt.Sprintf("P-%02d", i)
+		}
+		repos = append(repos, repo.Repo{
+			Name:                name,
+			Path:                path,
+			Branch:              "main",
+			CommonGitDir:        commonGitDir,
+			PrimaryWorktreePath: "/projects/go/P",
+			LastCommitAt:        wtAgo(i),
+		})
+	}
+
+	m := newTestModel(t, repos, "/projects")
+	m.width = 200
+	m.height = 30
+	m.scanning = false
+	m.recentCommits[m.repos[m.selected].Path] = recentCommitsState{
+		loaded: true,
+		lines:  []string{"latest subject"},
+	}
+
+	view := m.View()
+	if got := viewHeight(t, m); got != m.height {
+		t.Fatalf("View height with %d worktrees = %d; want %d\n%s",
+			worktreeCount, got, m.height, view)
+	}
+	if !strings.Contains(firstNonEmptyLine(view), "atlas") {
+		t.Errorf("top status header should remain visible; got:\n%s", view)
+	}
+	for _, want := range []string{
+		"▸ Worktrees (44)",
+		"more worktrees",
+		"▸ Recent commits",
+		"latest subject",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("oversized roster view missing %q; got:\n%s", want, view)
+		}
+	}
+}
+
+// Narrow split panes wrap long repo-controlled values into multiple terminal
+// rows. The roster budget must count those physical rows or the final hard cap
+// will cut off Recent commits even though the logical-line budget appeared to
+// fit.
+func TestRenderDetail_WrappedRowsPreserveRecentCommits(t *testing.T) {
+	const width = 33 // minimum inner width at the 100-column split threshold
+	const height = 24
+	const worktreeCount = 8
+
+	primary := repo.Repo{
+		Name:                "a-primary-worktree-name-that-wraps",
+		Path:                "/projects/a-very-long-directory-name/primary-worktree",
+		Branch:              "topic/a-very-long-branch-name-that-wraps",
+		CommonGitDir:        "/projects/main/.git",
+		PrimaryWorktreePath: "/projects/a-very-long-directory-name/primary-worktree",
+		LastCommitAt:        wtAgo(0),
+		WorktreeCount:       worktreeCount,
+	}
+	siblings := make([]repo.Repo, 0, worktreeCount)
+	for i := 0; i < worktreeCount; i++ {
+		w := primary
+		w.Name = fmt.Sprintf("worktree-%02d-with-a-name-that-wraps", i)
+		w.Path = fmt.Sprintf("/projects/worktree-%02d-with-a-name-that-wraps", i)
+		w.Branch = fmt.Sprintf("topic/worktree-%02d-branch-that-wraps", i)
+		siblings = append(siblings, w)
+	}
+
+	out := renderDetailWithinHeight(&primary, recentCommitsState{
+		loaded: true,
+		lines:  []string{"a recent commit subject that also wraps across rows"},
+	}, siblings, width, height, newStyles(""))
+
+	if got := lipgloss.Height(out); got > height {
+		t.Fatalf("wrapped detail height = %d; want <= %d\n%s", got, height, out)
+	}
+	for _, want := range []string{"more worktrees", "▸ Recent commits", "a recent commit subject"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("wrapped detail missing %q; got:\n%s", want, out)
+		}
+	}
+}
+
+func TestWorktreeOmissionLine_PluralizesCount(t *testing.T) {
+	cases := []struct {
+		count int
+		want  string
+	}{
+		{count: 1, want: "  … 1 more worktree"},
+		{count: 2, want: "  … 2 more worktrees"},
+	}
+	for _, tc := range cases {
+		if got := worktreeOmissionLine(tc.count); got != tc.want {
+			t.Errorf("worktreeOmissionLine(%d) = %q; want %q", tc.count, got, tc.want)
+		}
 	}
 }

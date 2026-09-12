@@ -28,32 +28,38 @@ import (
 // rather than rendering "—" everywhere — clean repos shouldn't be
 // noisy.
 func renderDetail(r *repo.Repo, recent recentCommitsState, siblings []repo.Repo, width int, s styles) string {
+	return renderDetailWithinHeight(r, recent, siblings, width, 0, s)
+}
+
+// renderDetailWithinHeight renders the detail pane with an optional height
+// budget. It budgets worktree-roster rows against maxHeight after accounting
+// for fixed detail and recent commits. It does not truncate fixed content;
+// callers apply any final height cap. A zero maxHeight leaves the roster
+// unbounded, which is useful to callers that render the detail content on its
+// own.
+func renderDetailWithinHeight(r *repo.Repo, recent recentCommitsState, siblings []repo.Repo, width, maxHeight int, s styles) string {
 	if r == nil {
 		return s.row.Render("(no selection)")
 	}
 	lineStyle := lipgloss.NewStyle().Width(width)
+	renderLine := lineStyle.Render
 
-	var b strings.Builder
-
-	b.WriteString(lineStyle.Render(s.detailHeader.Render(termsafe.Sanitize(r.Name))))
-	b.WriteByte('\n')
-	b.WriteString(lineStyle.Render(termsafe.Sanitize(config.ContractHome(r.Path))))
-	b.WriteByte('\n')
+	lines := []string{
+		renderLine(s.detailHeader.Render(termsafe.Sanitize(r.Name))),
+		renderLine(termsafe.Sanitize(config.ContractHome(r.Path))),
+	}
 
 	highlights := repo.Highlights(*r)
 	if len(highlights) > 0 {
-		b.WriteString(lineStyle.Render("Highlights  " + strings.Join(highlights, " · ")))
-		b.WriteByte('\n')
+		lines = append(lines, renderLine("Highlights  "+strings.Join(highlights, " · ")))
 	}
-	b.WriteString(lineStyle.Render(strings.Repeat("─", maxInt(8, width))))
-	b.WriteByte('\n')
+	lines = append(lines, renderLine(strings.Repeat("─", maxInt(8, width))))
 
 	addRow := func(label, value string) {
 		if value == "" {
 			return
 		}
-		b.WriteString(lineStyle.Render(formatDetailRow(label, value)))
-		b.WriteByte('\n')
+		lines = append(lines, renderLine(formatDetailRow(label, value)))
 	}
 
 	addRow("Kind", r.Kind.String())
@@ -86,44 +92,90 @@ func renderDetail(r *repo.Repo, recent recentCommitsState, siblings []repo.Repo,
 	}
 	addRow("Flags", flagString(*r))
 
+	recentLines := []string{renderLine(s.detailSection.Render("▸ Recent commits"))}
+	switch {
+	case recent.err != nil:
+		recentLines = append(recentLines, renderLine("  (commits unavailable)"))
+	case recent.loaded && len(recent.lines) == 0:
+		recentLines = append(recentLines, renderLine("  (no commits)"))
+	case recent.loaded:
+		for _, line := range recent.lines {
+			recentLines = append(recentLines, renderLine("  "+termsafe.Sanitize(line)))
+		}
+	default:
+		// loading or never-requested
+		recentLines = append(recentLines, renderLine("  (loading…)"))
+	}
+
 	if len(siblings) > 0 {
-		b.WriteByte('\n')
-		b.WriteString(lineStyle.Render(s.detailSection.Render(
+		lines = append(lines, "", renderLine(s.detailSection.Render(
 			fmt.Sprintf("▸ Worktrees (%d)", len(siblings)))))
-		b.WriteByte('\n')
+
+		rosterLines := make([]string, len(siblings))
 		for i, w := range siblings {
-			b.WriteString(lineStyle.Render("  " + worktreeRosterLine(w)))
-			if i < len(siblings)-1 {
-				b.WriteByte('\n')
+			rosterLines[i] = renderLine("  " + worktreeRosterLine(w))
+		}
+		visible := len(siblings)
+		usedRosterRows := renderedLinesHeight(rosterLines)
+		rosterRows := usedRosterRows
+		if maxHeight > 0 {
+			// Besides the roster entries, reserve one row for the blank
+			// separator before Recent commits. Measure physical rows rather
+			// than logical entries because width-constrained detail lines can
+			// wrap. If the roster must shrink, reserve room for an omission
+			// line as well.
+			rosterRows = maxHeight - renderedLinesHeight(lines) - 1 - renderedLinesHeight(recentLines)
+			if usedRosterRows > rosterRows {
+				visible = 0
+				usedRosterRows = 0
+				for visible < len(rosterLines) {
+					nextRows := usedRosterRows + lipgloss.Height(rosterLines[visible])
+					remaining := len(rosterLines) - visible - 1
+					if remaining > 0 {
+						nextRows += lipgloss.Height(renderLine(worktreeOmissionLine(remaining)))
+					}
+					if nextRows > rosterRows {
+						break
+					}
+					usedRosterRows += lipgloss.Height(rosterLines[visible])
+					visible++
+				}
 			}
 		}
-		b.WriteByte('\n')
+		lines = append(lines, rosterLines[:visible]...)
+		if omitted := len(siblings) - visible; omitted > 0 {
+			omittedLine := renderLine(worktreeOmissionLine(omitted))
+			if maxHeight <= 0 || usedRosterRows+lipgloss.Height(omittedLine) <= rosterRows {
+				lines = append(lines, omittedLine)
+			}
+		}
 	}
 
 	// Recent commits section — three terminal states (loading, loaded
 	// with N>=0 commits, loaded with err) plus the not-yet-requested
 	// default which we treat as loading so the pane doesn't blank out
 	// between selection-change and the first tick firing.
-	b.WriteByte('\n')
-	b.WriteString(lineStyle.Render(s.detailSection.Render("▸ Recent commits")))
-	b.WriteByte('\n')
-	switch {
-	case recent.err != nil:
-		b.WriteString(lineStyle.Render("  (commits unavailable)"))
-	case recent.loaded && len(recent.lines) == 0:
-		b.WriteString(lineStyle.Render("  (no commits)"))
-	case recent.loaded:
-		for i, line := range recent.lines {
-			b.WriteString(lineStyle.Render("  " + termsafe.Sanitize(line)))
-			if i < len(recent.lines)-1 {
-				b.WriteByte('\n')
-			}
-		}
-	default:
-		// loading or never-requested
-		b.WriteString(lineStyle.Render("  (loading…)"))
+	lines = append(lines, "")
+	lines = append(lines, recentLines...)
+	return strings.Join(lines, "\n")
+}
+
+// renderedLinesHeight returns the physical terminal rows occupied when the
+// already-rendered lines are joined. Individual entries can themselves
+// contain newlines after Lip Gloss applies a width constraint.
+func renderedLinesHeight(lines []string) int {
+	if len(lines) == 0 {
+		return 0
 	}
-	return b.String()
+	return lipgloss.Height(strings.Join(lines, "\n"))
+}
+
+func worktreeOmissionLine(n int) string {
+	noun := "worktrees"
+	if n == 1 {
+		noun = "worktree"
+	}
+	return fmt.Sprintf("  … %d more %s", n, noun)
 }
 
 // worktreeRosterLine renders one entry in the detail pane's Worktrees
@@ -187,4 +239,3 @@ func max0(n int) int {
 	}
 	return n
 }
-
