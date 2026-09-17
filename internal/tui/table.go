@@ -23,19 +23,26 @@ func SetNowFunc(f func() time.Time) {
 	nowFunc = f
 }
 
+// tableOpts bundles view-dependent settings so new settings can pass
+// through the render helpers without adding separate parameters.
+type tableOpts struct {
+	root    string
+	groupBy string
+}
+
 // renderTable produces the body of the TUI: header + a window of rows
 // fitted to the available width and viewport height. scrollOffset is the
 // index of the first *render row* to draw; render rows include any group
 // headers when groupBy != "none". selected is the index of the highlighted
 // repo within `repos`; rows outside the visible window are simply skipped.
-func renderTable(repos []repo.Repo, root, groupBy string, selected, scrollOffset, viewportRows, width int, s styles) string {
+func renderTable(repos []repo.Repo, o tableOpts, selected, scrollOffset, viewportRows, width int, s styles) string {
 	if len(repos) == 0 {
 		return s.row.Render("(no repositories)")
 	}
-	cols := chooseColumns(width, repos, root, groupBy)
+	cols := chooseColumns(width, repos, o)
 	pathCol := pathColumnIndex(cols)
 
-	rows := buildRenderRows(repos, root, groupBy)
+	rows := buildRenderRows(repos, o)
 	if scrollOffset < 0 {
 		scrollOffset = 0
 	}
@@ -55,11 +62,11 @@ func renderTable(repos []repo.Repo, root, groupBy string, selected, scrollOffset
 		if row.kind == rowGroup {
 			line = s.groupHeader.Render(formatGroupHeader(row.label, row.count, columnsWidth(cols)))
 		} else {
-			cells := rowCells(cols, row.repo, root)
-			if groupBy == "worktree" && pathCol >= 0 {
+			cells := rowCells(cols, row.repo, o)
+			if o.groupBy == "worktree" && pathCol >= 0 {
 				cells[pathCol] = worktreeConnector(row) + cells[pathCol]
 			}
-			if groupBy == "worktree" && row.depth == 0 &&
+			if o.groupBy == "worktree" && row.depth == 0 &&
 				row.repo.PrimaryWorktree && row.repo.WorktreeHasLaggingChild &&
 				!row.repo.LaggingWorktree {
 				// Roll a forgotten child up onto the anchor so it's
@@ -73,7 +80,7 @@ func renderTable(repos []repo.Repo, root, groupBy string, selected, scrollOffset
 			switch {
 			case row.repoIdx == selected:
 				line = s.selected.Render(rendered)
-			case groupBy == "worktree" && row.depth > 0 &&
+			case o.groupBy == "worktree" && row.depth > 0 &&
 				(row.repo.LaggingWorktree || row.repo.Stale):
 				line = s.laggingRow.Render(rendered)
 			default:
@@ -120,8 +127,8 @@ const (
 // label means "no top dir" and we render those repos directly with no
 // section header — keeps the layout uncluttered for repos that live at
 // root level).
-func buildRenderRows(repos []repo.Repo, root, groupBy string) []rowEntry {
-	if groupBy == "" || groupBy == "none" {
+func buildRenderRows(repos []repo.Repo, o tableOpts) []rowEntry {
+	if o.groupBy == "" || o.groupBy == "none" {
 		out := make([]rowEntry, len(repos))
 		for i, r := range repos {
 			out[i] = rowEntry{kind: rowRepo, repo: r, repoIdx: i}
@@ -129,8 +136,8 @@ func buildRenderRows(repos []repo.Repo, root, groupBy string) []rowEntry {
 		return out
 	}
 
-	if groupBy == "worktree" {
-		return buildWorktreeRows(repos, root)
+	if o.groupBy == "worktree" {
+		return buildWorktreeRows(repos, o.root)
 	}
 
 	// Pre-pass: collect group keys and counts in input order.
@@ -138,7 +145,7 @@ func buildRenderRows(repos []repo.Repo, root, groupBy string) []rowEntry {
 	groupOrder := make([]string, 0, 8)
 	keys := make([]string, len(repos))
 	for i, r := range repos {
-		k := groupKey(r, groupBy, root)
+		k := groupKey(r, o.groupBy, o.root)
 		keys[i] = k
 		if _, seen := groupCounts[k]; !seen {
 			groupOrder = append(groupOrder, k)
@@ -296,18 +303,18 @@ func columnsWidth(cols []column) int {
 // renderRowsForRepos returns how many render rows would be generated for
 // the given repo set under the active groupBy. Used by callers (Model.View
 // / scroll math) to size the viewport without re-running the renderer.
-func renderRowsForRepos(repos []repo.Repo, root, groupBy string) int {
-	return len(buildRenderRows(repos, root, groupBy))
+func renderRowsForRepos(repos []repo.Repo, o tableOpts) int {
+	return len(buildRenderRows(repos, o))
 }
 
 // renderRowOfRepo returns the index of the given repo's row in the
 // rendered output. Returns -1 if repoIdx is out of range. Used to keep the
 // scroll offset in sync with selection across header insertions.
-func renderRowOfRepo(repos []repo.Repo, root, groupBy string, repoIdx int) int {
+func renderRowOfRepo(repos []repo.Repo, o tableOpts, repoIdx int) int {
 	if repoIdx < 0 || repoIdx >= len(repos) {
 		return -1
 	}
-	rows := buildRenderRows(repos, root, groupBy)
+	rows := buildRenderRows(repos, o)
 	for i, row := range rows {
 		if row.kind == rowRepo && row.repoIdx == repoIdx {
 			return i
@@ -329,7 +336,7 @@ type column struct {
 // columns that follow.
 const worktreeIndent = 3
 
-func chooseColumns(width int, repos []repo.Repo, root, groupBy string) []column {
+func chooseColumns(width int, repos []repo.Repo, o tableOpts) []column {
 	// Compute natural widths (clamped). Drop columns gracefully on narrow
 	// terminals: keep repo + last_commit + flags at minimum.
 	pathW := 4    // "repo"
@@ -337,12 +344,12 @@ func chooseColumns(width int, repos []repo.Repo, root, groupBy string) []column 
 	commitW := 11 // "last_commit"
 	flagsW := 5   // "flags"
 	for _, r := range repos {
-		pathW = maxInt(pathW, runeLen(displayPath(root, r)))
+		pathW = maxInt(pathW, runeLen(displayPath(o.root, r)))
 		branchW = maxInt(branchW, runeLen(branchOf(r)))
 		commitW = maxInt(commitW, runeLen(relativeTime(r.LastCommitAt)))
 		flagsW = maxInt(flagsW, runeLen(flagString(r)))
 	}
-	if groupBy == "worktree" {
+	if o.groupBy == "worktree" {
 		pathW += worktreeIndent
 	}
 	gap := 2
@@ -380,12 +387,12 @@ func headerCells(cols []column) []string {
 	return out
 }
 
-func rowCells(cols []column, r repo.Repo, root string) []string {
+func rowCells(cols []column, r repo.Repo, o tableOpts) []string {
 	out := make([]string, len(cols))
 	for i, c := range cols {
 		switch c.key {
 		case "path":
-			out[i] = displayPath(root, r)
+			out[i] = displayPath(o.root, r)
 		case "branch":
 			out[i] = branchOf(r)
 		case "last":

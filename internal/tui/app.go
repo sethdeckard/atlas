@@ -371,7 +371,7 @@ func (m Model) View() string {
 	var tableBody string
 	switch {
 	case m.selected >= 0:
-		tableBody = renderTable(m.repos, m.root, m.groupBy, m.selected, m.scrollOffset, rows, tableWidth, m.styles)
+		tableBody = renderTable(m.repos, m.tableOpts(), m.selected, m.scrollOffset, rows, tableWidth, m.styles)
 	case m.scanning:
 		tableBody = m.styles.row.Render(fmt.Sprintf(
 			"Discovering repositories under %s...",
@@ -383,7 +383,7 @@ func (m Model) View() string {
 		// place the "(no matches)" placeholder underneath. Keeps
 		// the table structure visible so it's obvious the screen
 		// hasn't lost the data — the filter just doesn't match.
-		cols := chooseColumns(tableWidth, m.scopedRepos(), m.root, m.groupBy)
+		cols := chooseColumns(tableWidth, m.scopedRepos(), m.tableOpts())
 		header := m.styles.header.Render(formatRow(cols, headerCells(cols)))
 		tableBody = header + "\n" + m.styles.row.Render("(no matches)")
 	default:
@@ -708,6 +708,14 @@ func (m Model) viewportRows() int {
 	return rows
 }
 
+// tableOpts snapshots the view state the table renderer needs. Every
+// caller of the render helpers goes through this so the table, the
+// no-matches header, and the scroll math can never disagree about how
+// rows are being laid out.
+func (m Model) tableOpts() tableOpts {
+	return tableOpts{root: m.root, groupBy: m.groupBy}
+}
+
 // scrollIntoView returns a scrollOffset that keeps the selected repo's
 // rendered row visible. selected is an index into m.repos; offset is in
 // render-row units (which may include group headers).
@@ -715,7 +723,7 @@ func (m Model) scrollIntoView(selected, offset int) int {
 	if selected < 0 || len(m.repos) == 0 {
 		return 0
 	}
-	target := renderRowOfRepo(m.repos, m.root, m.groupBy, selected)
+	target := renderRowOfRepo(m.repos, m.tableOpts(), selected)
 	if target < 0 {
 		return m.clampScroll(offset)
 	}
@@ -729,7 +737,7 @@ func (m Model) scrollIntoView(selected, offset int) int {
 	// nudge offset up by 1 so the header is also visible.
 	if offset > 0 && target == offset {
 		// Look at the previous render row — if it's a header, include it.
-		all := buildRenderRows(m.repos, m.root, m.groupBy)
+		all := buildRenderRows(m.repos, m.tableOpts())
 		if offset-1 < len(all) && all[offset-1].kind == rowGroup {
 			offset--
 		}
@@ -739,7 +747,7 @@ func (m Model) scrollIntoView(selected, offset int) int {
 
 func (m Model) clampScroll(offset int) int {
 	rows := m.viewportRows()
-	total := renderRowsForRepos(m.repos, m.root, m.groupBy)
+	total := renderRowsForRepos(m.repos, m.tableOpts())
 	max := total - rows
 	if max < 0 {
 		max = 0
