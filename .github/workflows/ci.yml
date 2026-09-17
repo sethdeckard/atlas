@@ -16,10 +16,13 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # golangci-lint v2 needs action v7+; v8 requires golangci-lint
+      # >= v2.1.0. CI pins golangci-lint v2.13.2; use the same version
+      # locally with `make lint`.
       - name: Lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.64.8
+          version: v2.13.2
           install-mode: goinstall
           args: --timeout=5m
 

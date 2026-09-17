@@ -1,17 +1,42 @@
+# golangci-lint v2 config. errcheck, govet, ineffassign, staticcheck,
+# and unused are enabled by default, so only the extras are listed
+# under `enable`. staticcheck includes gosimple's simplification checks.
+version: "2"
 linters:
   enable:
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gosimple
-    - misspell
     - gocritic
+    - misspell
     - revive
-
-linters-settings:
-  revive:
-    rules:
-      - name: exported
-        disabled: true
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+    staticcheck:
+      # Run correctness (SA*) and simplification (S*) checks. Exclude
+      # style (ST*) and quickfix (QF*) checks. ST1018 fires on the
+      # deliberate control characters in
+      # internal/termsafe/termsafe_test.go, which would need escaping.
+      # Remove the entire checks override to use v2 defaults.
+      checks:
+        - all
+        - -ST*
+        - -QF*
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
