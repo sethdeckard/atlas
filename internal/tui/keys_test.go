@@ -21,6 +21,7 @@ func TestKeyMap_Bindings(t *testing.T) {
 		{"SortCycle", []string{"s"}, k.SortCycle.Keys()},
 		{"SortReverse", []string{"S"}, k.SortReverse.Keys()},
 		{"GroupCycle", []string{"tab"}, k.GroupCycle.Keys()},
+		{"CollapseWorktrees", []string{"w"}, k.CollapseWorktrees.Keys()},
 		{"JumpTop", []string{"g", "home"}, k.JumpTop.Keys()},
 		{"JumpBottom", []string{"G", "end"}, k.JumpBottom.Keys()},
 		{"HalfUp", []string{"ctrl+u"}, k.HalfUp.Keys()},

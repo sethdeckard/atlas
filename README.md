@@ -71,6 +71,7 @@ aliases.
 | `esc`           | clear the active filter (no-op when nothing's filtered) |
 | `s` / `S`       | cycle sort key / reverse direction                      |
 | `tab`           | cycle grouping (activity → top_dir → language → worktree → none) |
+| `w`             | fold linked worktrees into one row per project          |
 | `enter`         | print the selected repo's path on stdout, then exit     |
 | `c`             | copy the path to the clipboard                          |
 | `o`             | open the origin URL in the browser                      |
@@ -83,10 +84,10 @@ pane on the right with everything it knows about the selected repo,
 including a "Highlights" line that translates the table glyphs to
 plain words (`dirty · 2 commits ahead · 1 stash · linked worktree`).
 
-atlas remembers the last sort and grouping you used: cycling with
-`s`, `S`, or `tab` writes the new state into the cache, and the next
-launch picks up where you left off. The `[sort]` / `group_by`
-settings in `config.toml` are the *first-run* defaults.
+atlas remembers the last sort, grouping, and fold state you used:
+cycling with `s`, `S`, `tab`, or `w` writes the new state into the
+cache, and the next launch picks up where you left off. Sort and
+grouping use built-in defaults until a cached session overrides them.
 
 ### Use atlas as a `cd` launcher
 
@@ -159,9 +160,10 @@ override. On every launch, atlas refreshes any commented blocks for
 keys still using their defaults, so a future uncomment lands on
 the latest defaults — your uncommented values are never touched.
 
-Sort and grouping aren't config — the TUI remembers them in the
-cache after each `s` / `S` / `tab`. CLI invocations default to
-`--sort=last_commit_at` (descending, override with `--reverse`).
+Sort, grouping, and the worktree fold aren't config — the TUI
+remembers them in the cache after each `s` / `S` / `tab` / `w`. CLI
+invocations default to `--sort=last_commit_at` (descending, override
+with `--reverse`).
 
 `skip_dirs` accepts two entry shapes:
 
@@ -232,6 +234,25 @@ atlas computes per-repo signals on every refresh:
   renders each multi-worktree project as a small tree: the primary
   checkout anchors the subtree, its linked worktrees nest beneath
   it with `├─ / └─` connectors.
+
+Press `w` to fold those worktrees away. Each project collapses to a
+single anchor row badged with the number hidden behind it
+(`atlas (+12)`), which works in every grouping mode, not just
+`worktree`. While folded and no filter is active, a `worktrees folded ·
+w to expand` chip appears above the table, in the row an active filter
+otherwise uses.
+
+The anchor is the project's primary checkout, or the bare repository
+when there's no primary. Without a primary or bare row in scope, the
+first worktree in the active sort order anchors the project, so the
+choice follows `s` / `S`.
+
+A forgotten child's `⊘` rolls up onto the anchor so it stays visible
+while folded. Folding does not change the detail roster; entries
+remain limited by the active root and available height. Matching
+children remain unfolded when their elected anchor does not match the
+filter. On a folded project row, `enter` and `c` act on its anchor, so
+press `w` again to reach a specific worktree.
 
 The `Highlights` helper combines these into a single human-readable
 line that drives the table glyphs, the status-bar count, the detail

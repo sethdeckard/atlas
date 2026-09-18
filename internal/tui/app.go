@@ -45,6 +45,11 @@ type Model struct {
 	selected     int
 	selectedPath string
 
+	// folds records which worktrees rebuildRepos folded away and what
+	// they folded into. Recomputed on every rebuild and only meaningful
+	// while worktreesCollapsed is set; view-side only, never persisted.
+	folds folds
+
 	// scanning is true while the initial discover is still in flight for
 	// the active root (no warm cache entries to seed the table). Set in
 	// New when the cache yields no scoped repos; cleared in
@@ -63,6 +68,11 @@ type Model struct {
 	sortBy      string // last_commit_at | repo
 	sortDesc    bool
 	groupBy     string // top_dir | none (M4 widens to activity | language)
+
+	// worktreesCollapsed folds each project's linked worktrees into its
+	// anchor row. Independent of groupBy: it applies in every grouping
+	// mode, not just `worktree`.
+	worktreesCollapsed bool
 
 	// Refresh state machine.
 	refreshGen         int
@@ -185,6 +195,7 @@ func New(ctx context.Context, c *cache.Cache, cachePath string, cfg config.Confi
 		if c.Session.GroupBy != "" {
 			m.groupBy = c.Session.GroupBy
 		}
+		m.worktreesCollapsed = c.Session.CollapseWorktrees
 	}
 	(&m).rebuildRepos()
 	m.scanning = len(m.repos) == 0
@@ -475,14 +486,22 @@ func (m Model) renderStatusBar(width int) string {
 }
 
 // renderFilterRow owns the row between the status bar and the
-// table. Three states:
+// table. Four states:
 //
 //   - filterMode open → gold bar with the live input.
 //   - filterText set + mode closed → gold bar with
 //     "filter: <text> · esc to clear" so the user always knows a
 //     filter is applied and how to remove it.
-//   - no filter → blank row, intentional breathing room between
+//   - no filter, worktrees folded → gold bar with
+//     "worktrees folded · w to expand".
+//   - neither → blank row, intentional breathing room between
 //     the status bar and the column headers.
+//
+// The fold chip lives here rather than in the status bar because
+// this row is a fixed single line: a status-bar part can wrap the
+// bar onto a second line, which costs the table a row and makes
+// the view jump on every toggle. A filter takes the row back when
+// one is active; the (+N) badges still show the fold state.
 //
 // Always one line tall regardless of state, so viewportRows can
 // subtract a constant. The applied-filter label truncates the
@@ -522,6 +541,15 @@ func (m Model) renderFilterRow(width int) string {
 			label = truncateToWidth(prefix+m.filterText, available)
 		}
 		return m.styles.filterBarActive.Width(width).Render(label)
+	case m.worktreesCollapsed:
+		const label = "worktrees folded · w to expand"
+		// Same 2-col budget for the chip's padding as the filter
+		// case above; below it, fall back to a blank row.
+		available := width - 2
+		if available < 1 {
+			return strings.Repeat(" ", width)
+		}
+		return m.styles.filterBarActive.Width(width).Render(truncateToWidth(label, available))
 	default:
 		return strings.Repeat(" ", width)
 	}
@@ -583,13 +611,14 @@ func (m Model) viewHelp(width int) string {
 		m.keys.HalfUp, m.keys.HalfDown,
 		m.keys.Filter, m.keys.FilterCancel,
 		m.keys.SortCycle, m.keys.SortReverse,
-		m.keys.GroupCycle, m.keys.CopyPath,
-		m.keys.OpenOrigin, m.keys.Refresh,
-		m.keys.Help, m.keys.Quit,
-		// Enter's desc ("cd into repo & exit") is the longest in the
-		// list — render it as the trailing solo row so its width
-		// never feeds back into either column's padding budget and
-		// stretches the overlay.
+		m.keys.GroupCycle, m.keys.CollapseWorktrees,
+		m.keys.CopyPath, m.keys.OpenOrigin,
+		m.keys.Refresh, m.keys.Help,
+		m.keys.Quit,
+		// Rows pair up two per line, and helpColumnWidths sizes each
+		// column from the longest desc sharing that position's parity.
+		// Enter's "cd into repo & exit" is the longest desc in the
+		// list, so where it lands decides which column absorbs it.
 		m.keys.Enter,
 	}
 	// Column widths driven by actual help-text length, not fixed
@@ -713,7 +742,12 @@ func (m Model) viewportRows() int {
 // no-matches header, and the scroll math can never disagree about how
 // rows are being laid out.
 func (m Model) tableOpts() tableOpts {
-	return tableOpts{root: m.root, groupBy: m.groupBy}
+	return tableOpts{
+		root:      m.root,
+		groupBy:   m.groupBy,
+		collapsed: m.worktreesCollapsed,
+		folds:     m.folds,
+	}
 }
 
 // scrollIntoView returns a scrollOffset that keeps the selected repo's
@@ -829,6 +863,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.GroupCycle):
 		return m.cycleGroup()
+
+	case key.Matches(msg, m.keys.CollapseWorktrees):
+		return m.toggleWorktreeCollapse()
 
 	case key.Matches(msg, m.keys.CopyPath):
 		return m.copySelectedPath()
@@ -1083,6 +1120,7 @@ func (m *Model) recordSession() {
 		m.cache.Session.SortOrder = "asc"
 	}
 	m.cache.Session.GroupBy = m.groupBy
+	m.cache.Session.CollapseWorktrees = m.worktreesCollapsed
 }
 
 // cycleGroup advances the group-by mode through:
@@ -1116,6 +1154,28 @@ func (m Model) cycleGroup() (Model, tea.Cmd) {
 	}
 	rebuildCmd := (&m).rebuildRepos()
 	m.statusMsg = "group: " + m.groupBy
+	m.recordSession()
+	var saveCmd tea.Cmd
+	m, saveCmd = m.requestSave()
+	return m, tea.Batch(rebuildCmd, saveCmd)
+}
+
+// toggleWorktreeCollapse folds each project's linked worktrees into its
+// anchor row, or unfolds them again. It applies in every grouping mode,
+// so it composes with tab rather than replacing the `worktree` mode.
+//
+// rebuildRepos does the work, including reseating selection when the
+// highlighted row is one of the ones being folded away.
+//
+// Deliberately sets no status message. A status-bar part can wrap the
+// bar onto a second line, which shrinks the table by a row and then
+// restores it when the message expires, so the view jumps twice per
+// press. renderFilterRow carries the fold state instead, on a row whose
+// height never varies. Feedback when nothing folds comes from that same
+// chip, so the key still looks alive in a tree with no worktrees.
+func (m Model) toggleWorktreeCollapse() (Model, tea.Cmd) {
+	m.worktreesCollapsed = !m.worktreesCollapsed
+	rebuildCmd := (&m).rebuildRepos()
 	m.recordSession()
 	var saveCmd tea.Cmd
 	m, saveCmd = m.requestSave()
@@ -1438,9 +1498,9 @@ func (m Model) worktreeSiblings(r repo.Repo) []repo.Repo {
 // (all linked worktrees of one project share a CommonGitDir), even when
 // only one of those worktrees survives the filter.
 //
-// Selection is preserved across rebuilds: the selectedPath is looked up
-// in the new repos slice; if missing, selection falls back to the nearest
-// preceding index, then 0; if zero matches, selected = -1 so renderers
+// Selection is preserved across rebuilds: preserve the selected path,
+// move folded selections to their anchor, or clamp the previous index
+// to the remaining rows. If zero rows match, selected = -1 so renderers
 // can show a "no matches" placeholder.
 //
 // Returns a tea.Cmd to schedule the recent-commits load when the
@@ -1457,6 +1517,16 @@ func (m *Model) rebuildRepos() tea.Cmd {
 	filtered := filterRepos(scoped, m.filterText, m.root)
 	// scopedRepos already sorted by configured sort; filterRepos preserves
 	// input order — no re-sort needed.
+	//
+	// The fold happens here rather than in the renderer because m.repos
+	// is the source of truth for selection and scroll math. Hiding rows
+	// at render time would let m.selected point at a row with no render
+	// row, losing the highlight and letting enter/c act on something
+	// the user can't see.
+	m.folds = folds{}
+	if m.worktreesCollapsed {
+		filtered, m.folds = collapseWorktrees(filtered, scoped)
+	}
 	bucketed := bucketByGroup(filtered, m.groupBy, m.root)
 	prevPath := m.selectedPath
 	prevIndex := m.selected
@@ -1472,11 +1542,16 @@ func (m *Model) rebuildRepos() tea.Cmd {
 	// Find prevPath in new slice.
 	idx := -1
 	if prevPath != "" {
-		for i, r := range bucketed {
-			if r.Path == prevPath {
-				idx = i
-				break
-			}
+		idx = indexOfPath(bucketed, prevPath)
+	}
+	// The selected row may have just been folded away: w pressed, a sort
+	// flip re-electing a bare-backed anchor, or a filter edit that made
+	// the cluster foldable. Reseat onto the anchor it folded into rather
+	// than letting the clamp-previous-index fallback drop the user
+	// somewhere arbitrary.
+	if idx < 0 && prevPath != "" {
+		if anchor, ok := m.folds.into[prevPath]; ok {
+			idx = indexOfPath(bucketed, anchor)
 		}
 	}
 	switch {
@@ -1770,6 +1845,10 @@ func (m Model) statusBarHeight() int {
 	return h
 }
 
+// hintBar renders the bottom key hints. The list is deliberately not
+// exhaustive: it renders 75 cells wide, and one more pair would wrap it
+// past 80 while viewportRows still subtracts a single line for it. c, o
+// and w are documented in the ? overlay and the README instead.
 func (m Model) hintBar() string {
 	pairs := []struct{ key, label string }{
 		{"k/j", "nav"},

@@ -52,6 +52,11 @@ type Session struct {
 	SortBy    string `json:"sort_by,omitempty"`
 	SortOrder string `json:"sort_order,omitempty"` // asc | desc
 	GroupBy   string `json:"group_by,omitempty"`
+
+	// CollapseWorktrees folds each project's linked worktrees into its
+	// anchor row. omitempty drops the false case, and an absent key
+	// reads back as false, which is the expanded default.
+	CollapseWorktrees bool `json:"collapse_worktrees,omitempty"`
 }
 
 // Reader is the per-repo reader signature consumed by Refresh. Matches

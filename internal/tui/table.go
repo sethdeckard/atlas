@@ -26,8 +26,10 @@ func SetNowFunc(f func() time.Time) {
 // tableOpts bundles view-dependent settings so new settings can pass
 // through the render helpers without adding separate parameters.
 type tableOpts struct {
-	root    string
-	groupBy string
+	root      string
+	groupBy   string
+	collapsed bool
+	folds     folds
 }
 
 // renderTable produces the body of the TUI: header + a window of rows
@@ -65,16 +67,6 @@ func renderTable(repos []repo.Repo, o tableOpts, selected, scrollOffset, viewpor
 			cells := rowCells(cols, row.repo, o)
 			if o.groupBy == "worktree" && pathCol >= 0 {
 				cells[pathCol] = worktreeConnector(row) + cells[pathCol]
-			}
-			if o.groupBy == "worktree" && row.depth == 0 &&
-				row.repo.PrimaryWorktree && row.repo.WorktreeHasLaggingChild &&
-				!row.repo.LaggingWorktree {
-				// Roll a forgotten child up onto the anchor so it's
-				// visible even when the child is scrolled off. Skip
-				// when the primary itself already lags — flagString
-				// has put ⊘ on this row, and appending again would
-				// double-mark the same fact.
-				cells[len(cells)-1] += " ⊘"
 			}
 			rendered := formatRow(cols, cells)
 			switch {
@@ -344,12 +336,16 @@ func chooseColumns(width int, repos []repo.Repo, o tableOpts) []column {
 	commitW := 11 // "last_commit"
 	flagsW := 5   // "flags"
 	for _, r := range repos {
-		pathW = maxInt(pathW, runeLen(displayPath(o.root, r)))
+		pathW = maxInt(pathW, runeLen(pathCell(r, o)))
 		branchW = maxInt(branchW, runeLen(branchOf(r)))
 		commitW = maxInt(commitW, runeLen(relativeTime(r.LastCommitAt)))
-		flagsW = maxInt(flagsW, runeLen(flagString(r)))
+		flagsW = maxInt(flagsW, runeLen(flagsCell(r, o)))
 	}
-	if o.groupBy == "worktree" {
+	// Collapsed clusters emit a single flush-left row, so the connector
+	// budget is only owed when children can still appear: either the
+	// view is expanded, or a cluster survived unfolded because its
+	// anchor was filtered out.
+	if o.groupBy == "worktree" && (!o.collapsed || o.folds.anyNested) {
 		pathW += worktreeIndent
 	}
 	gap := 2
@@ -392,16 +388,65 @@ func rowCells(cols []column, r repo.Repo, o tableOpts) []string {
 	for i, c := range cols {
 		switch c.key {
 		case "path":
-			out[i] = displayPath(o.root, r)
+			out[i] = pathCell(r, o)
 		case "branch":
 			out[i] = branchOf(r)
 		case "last":
 			out[i] = relativeTime(r.LastCommitAt)
 		case "flags":
-			out[i] = flagString(r)
+			out[i] = flagsCell(r, o)
 		}
 	}
 	return out
+}
+
+// rollsUpLagging reports whether r's row should summarize lagging
+// children on their anchor. Collapsed views use folded-child state;
+// expanded worktree views use the primary's derived child state.
+//
+// A row that lags on its own never rolls up: flagString already put ⊘
+// there, and a second one would double-mark a single fact. Past that,
+// the two cases are exclusive. Folding hides children in every grouping
+// mode, so the collapsed case can't be gated on groupBy, and it reads
+// folds.lagging rather than WorktreeHasLaggingChild because annotate
+// only sets that field on rows with PrimaryWorktree, leaving
+// bare-backed anchors unmarked.
+//
+// PrimaryWorktree rows render at depth 0 because bucketWorktrees puts
+// the primary first and buildWorktreeRows makes it the subtree root, so
+// the expanded case needs no depth test.
+func rollsUpLagging(r repo.Repo, o tableOpts) bool {
+	if r.LaggingWorktree {
+		return false
+	}
+	if o.collapsed {
+		return o.folds.lagging[r.Path]
+	}
+	return o.groupBy == "worktree" && r.PrimaryWorktree && r.WorktreeHasLaggingChild
+}
+
+// flagsCell returns the flags-column text: the row's own glyphs plus a
+// rolled-up ⊘ summarizing lagging children. chooseColumns measures this
+// exact string, so the rollup can't overflow the column budget and push
+// the row past the width the layout accounted for.
+func flagsCell(r repo.Repo, o tableOpts) string {
+	s := flagString(r)
+	if rollsUpLagging(r, o) {
+		s += " ⊘"
+	}
+	return s
+}
+
+// pathCell returns the repo-column text: the display path, plus a (+N)
+// badge counting the linked worktrees folded in behind this anchor.
+// chooseColumns measures this exact string, so the badge can never
+// overflow the column it widened.
+func pathCell(r repo.Repo, o tableOpts) string {
+	s := displayPath(o.root, r)
+	if n := o.folds.count[r.Path]; n > 0 {
+		s += fmt.Sprintf(" (+%d)", n)
+	}
+	return s
 }
 
 // displayPath returns the repo's display path with terminal control

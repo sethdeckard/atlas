@@ -68,9 +68,10 @@ func TestSaveLoad_SessionRoundtrip(t *testing.T) {
 
 	c := cache.New()
 	c.Session = &cache.Session{
-		SortBy:    "repo",
-		SortOrder: "asc",
-		GroupBy:   "top_dir",
+		SortBy:            "repo",
+		SortOrder:         "asc",
+		GroupBy:           "top_dir",
+		CollapseWorktrees: true,
 	}
 
 	if err := cache.Save(path, c); err != nil {
@@ -93,18 +94,22 @@ func TestSaveLoad_SessionRoundtrip(t *testing.T) {
 // was at request time, even if the live cache mutates after.
 func TestSnapshot_CopiesSession(t *testing.T) {
 	c := cache.New()
-	c.Session = &cache.Session{SortBy: "repo", GroupBy: "top_dir", SortOrder: "asc"}
+	c.Session = &cache.Session{SortBy: "repo", GroupBy: "top_dir", SortOrder: "asc", CollapseWorktrees: true}
 	snap := c.Snapshot()
 
 	// Mutate live cache — snapshot must be unaffected.
 	c.Session.SortBy = "last_commit_at"
 	c.Session.GroupBy = "none"
+	c.Session.CollapseWorktrees = false
 
 	if snap.Session == nil {
 		t.Fatalf("snapshot Session is nil")
 	}
 	if snap.Session.SortBy != "repo" || snap.Session.GroupBy != "top_dir" {
 		t.Errorf("snapshot Session mutated by live writes: %+v", *snap.Session)
+	}
+	if !snap.Session.CollapseWorktrees {
+		t.Errorf("snapshot CollapseWorktrees mutated by live writes: %+v", *snap.Session)
 	}
 }
 

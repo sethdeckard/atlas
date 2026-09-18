@@ -27,6 +27,10 @@ type keyMap struct {
 	SortReverse key.Binding
 	GroupCycle  key.Binding
 
+	// CollapseWorktrees applies in every grouping mode, so it sits
+	// alongside GroupCycle rather than inside it.
+	CollapseWorktrees key.Binding
+
 	// M5: detail-pane affordances.
 	CopyPath   key.Binding
 	OpenOrigin key.Binding
@@ -94,6 +98,10 @@ func newKeyMap() keyMap {
 		GroupCycle: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "cycle grouping"),
+		),
+		CollapseWorktrees: key.NewBinding(
+			key.WithKeys("w"),
+			key.WithHelp("w", "fold worktrees"),
 		),
 		CopyPath: key.NewBinding(
 			key.WithKeys("c"),

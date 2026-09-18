@@ -296,6 +296,15 @@ pattern with a few atlas-specific contracts:
   Otherwise an in-flight tick from a previous selection still
   matches the unchanged gen and runs `git log` for a repo the user
   has already moved away from.
+- **The worktree fold happens in `rebuildRepos`, never in the
+  renderer.** `w` (`tui/collapse.go`) drops folded rows from the slice
+  that becomes `m.repos`, because `m.repos` is the source of truth for
+  `m.selected`, for `scrollIntoView`/`clampScroll`, and for
+  `handleEnter`/`copySelectedPath`. Hiding rows at render time would
+  leave `selected` pointing at a row with no render row: the highlight
+  disappears, `j`/`k` step through phantoms, and `enter` opens
+  something invisible. The same rebuild reseats selection through
+  `folds.into` when the highlighted row is the one being folded away.
 - **Pipe fallback.** When stdout isn't a TTY (`atlas | cat`),
   `cmd/atlas/main.go` redirects to `cli.NewListCommand` instead of
   trying to draw the TUI into a pipe.

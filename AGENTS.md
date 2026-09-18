@@ -106,6 +106,7 @@ internal/
     table.go                   # Table renderer + group bucketing
     detail.go                  # M5 right-pane renderer
     filter.go                  # Fuzzy filter (M3)
+    collapse.go                # `w` worktree fold: anchor election + folds bookkeeping
     clipboard.go               # Clipboard interface + atotto impl
     commands.go                # tea.Cmd factories
     messages.go                # tea.Msg types
