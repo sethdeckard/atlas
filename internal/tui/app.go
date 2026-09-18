@@ -24,10 +24,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const (
-	saveEveryNRefreshes = 10
-	statusMessageTTL    = 3 * time.Second
-)
+const saveEveryNRefreshes = 10
+
+// statusMessageTTL is how long a transient status message stays in the
+// bar. A var rather than a const so tests can shorten it; asserting
+// that a handler schedules the clear otherwise costs a real 3-second
+// sleep per assertion, since tea.Tick actually waits.
+var statusMessageTTL = 3 * time.Second
 
 // Model is the root tea.Model for atlas's TUI.
 type Model struct {
@@ -1157,7 +1160,7 @@ func (m Model) cycleGroup() (Model, tea.Cmd) {
 	m.recordSession()
 	var saveCmd tea.Cmd
 	m, saveCmd = m.requestSave()
-	return m, tea.Batch(rebuildCmd, saveCmd)
+	return m, tea.Batch(rebuildCmd, saveCmd, clearStatusAfter(statusMessageTTL))
 }
 
 // toggleWorktreeCollapse folds each project's linked worktrees into its
@@ -1706,8 +1709,99 @@ const statusBarSeparator = " │ "
 // the available width so wrapped lines don't overflow into the gutter.
 const statusBarPadding = 2
 
+// statusMessageMinWidth is the target message width when space
+// permits. Persistent text is clipped to make room. Wide enough for the
+// short messages ("copied path", "no origin URL") to render whole, and
+// unreachable on a terminal narrower than it, where the message takes
+// the line and truncates to whatever fits.
+const statusMessageMinWidth = 16
+
+// statusBar fits transient messages into the final line, clipping
+// persistent text or replacing that line when necessary. Truncation and
+// padding preserve the height reserved for persistent parts.
+//
+// The message never gets a line of its own. Bar height is a function of
+// the parts alone, so viewportRows stays put while a message comes and
+// goes and the table never resizes underneath the user. The cost is
+// that a long message is clipped rather than wrapped; the alternative
+// was a table that jumps twice per keypress.
 func (m Model) statusBar() string {
-	return packStatusBar(m.statusBarParts(), m.width)
+	base := packStatusBar(m.statusBarParts(), m.width)
+	if m.statusMsg == "" {
+		return base
+	}
+	// Flatten before measuring anything. scan.Discover reports walk
+	// failures through errors.Join, so a discover error arrives with
+	// embedded newlines; splicing those into the bar would add rendered
+	// rows that statusBarHeight, which never sees the message, cannot
+	// account for. Fields also collapses runs of whitespace.
+	msg := strings.Join(strings.Fields(m.statusMsg), " ")
+	if msg == "" {
+		return base
+	}
+	if m.width <= 0 {
+		return base + statusBarSeparator + m.styleStatusMsg(msg)
+	}
+
+	lines := strings.Split(base, "\n")
+	last := lines[len(lines)-1]
+	avail := m.width - statusBarPadding
+	sepW := lipgloss.Width(statusBarSeparator)
+	room := avail - lipgloss.Width(last) - sepW
+
+	if room < statusMessageMinWidth {
+		// The bar's own text has filled the line. Take the space back
+		// from its tail rather than dropping the message: a failure the
+		// user needs to see outranks a count they can read again after
+		// it clears.
+		keep := avail - sepW - statusMessageMinWidth
+		if keep < 1 {
+			// Too narrow for both. The message takes the line.
+			lines[len(lines)-1] = m.styleStatusMsg(truncateToWidth(msg, avail))
+			return m.padBarTo(strings.Join(lines, "\n"), base)
+		}
+		last = truncateToWidth(last, keep)
+		room = avail - lipgloss.Width(last) - sepW
+	}
+	if lipgloss.Width(msg) > room {
+		msg = truncateToWidth(msg, room)
+	}
+	lines[len(lines)-1] = last + statusBarSeparator + m.styleStatusMsg(msg)
+	return m.padBarTo(strings.Join(lines, "\n"), base)
+}
+
+// padBarTo appends blank lines to out until it renders as tall as base.
+//
+// Clipping the bar's own text to make room for a message can stop an
+// overlong part from wrapping, which shortens the bar by a row. On a
+// narrow terminal that matters: statusBarHeight measures the parts
+// alone and still reserves the taller figure, so without this the
+// whole view would shift up when a message appeared and back down when
+// it expired. The loop is bounded because a style that refuses to grow
+// would otherwise spin.
+func (m Model) padBarTo(out, base string) string {
+	if m.width <= 0 {
+		return out
+	}
+	height := func(s string) int {
+		return lipgloss.Height(m.styles.statusBar.Width(m.width).Render(s))
+	}
+	want := height(base)
+	for i := 0; i < want && height(out) < want; i++ {
+		out += "\n"
+	}
+	return out
+}
+
+// styleStatusMsg applies the error style to a status message when the
+// message reports a failure. Styling happens last so width math and
+// truncation operate on plain text and an ellipsis can never land in
+// the middle of an escape sequence.
+func (m Model) styleStatusMsg(s string) string {
+	if m.statusIsErr {
+		return m.styles.statusMessage.Render(s)
+	}
+	return s
 }
 
 // statusBarParts returns the ordered list of segments rendered into the
@@ -1783,13 +1877,11 @@ func (m Model) statusBarParts() []string {
 	if m.refreshing {
 		parts = append(parts, fmt.Sprintf("[refreshing %d/%d]", m.refreshDoneCount, m.refreshTotal))
 	}
-	if m.statusMsg != "" {
-		if m.statusIsErr {
-			parts = append(parts, m.styles.statusMessage.Render(m.statusMsg))
-		} else {
-			parts = append(parts, m.statusMsg)
-		}
-	}
+	// statusMsg is deliberately not a part. Parts drive the bar's
+	// height, and a transient message that pushes the bar onto another
+	// line would shrink the table for as long as it showed, then give
+	// the row back when it expired. statusBar fits it into the space
+	// the parts leave instead.
 	return parts
 }
 
