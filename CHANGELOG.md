@@ -5,6 +5,58 @@ All notable changes to atlas are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-17
+
+### Added
+
+- `w` folds a project's linked worktrees into a single row badged
+  with the number hidden behind it (`atlas (+12)`). A project with a
+  dozen checkouts no longer crowds out every single-worktree repo.
+
+  The fold applies in every grouping mode, not just `worktree`, and
+  persists across launches alongside sort and grouping. While folded
+  with no filter active, a `worktrees folded · w to expand` chip
+  appears above the table.
+
+  The anchor is the project's primary checkout, or the bare
+  repository when there's no primary. Without either in scope, the
+  first worktree in the active sort order anchors the project, so
+  `s` and `S` can change which row you see.
+
+  A folded worktree that has fallen behind still marks its anchor
+  with `⊘`. The badge counts the rows actually folded, so it drops
+  as a filter narrows the set.
+
+  A filter that matches a linked worktree but not its anchor leaves
+  those rows unfolded, because folding them behind a row the filter
+  rejected would hide a match. On a folded row, `enter` and `c` act
+  on the anchor, so press `w` again to reach a specific worktree.
+
+### Fixed
+
+- Status messages no longer resize the table. The message was a
+  status bar segment, and the bar's height decides how many rows the
+  table gets, so any message wide enough to wrap the bar stole a row
+  for as long as it showed and gave it back when it expired. The
+  view jumped twice on every `tab`, `c`, `o`, and error.
+
+  Messages now fit into the space the bar's own text leaves on its
+  final line. A long message is truncated rather than wrapped. When
+  the line is already full the bar's text is clipped instead, so a
+  failure you need to see is never dropped.
+
+  `tab` also used to leave `group: none` in the bar indefinitely.
+  It now clears like every other message.
+
+### Changed
+
+- The linter moved to golangci-lint v2. CI pins v2.13.2, and
+  `make lint` now fails on unformatted code as well, so a v1 binary
+  no longer works against this config. Run `golangci-lint fmt` to
+  apply formatting fixes.
+
+[0.3.0]: https://github.com/sethdeckard/atlas/releases/tag/v0.3.0
+
 ## [0.2.4] - 2026-09-11
 
 ### Fixed
