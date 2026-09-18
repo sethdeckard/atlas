@@ -129,8 +129,10 @@ testdata/
 - **Build:** `make build` (or `go build ./cmd/atlas`).
 - **Test:** `make test` (or `go test ./...`).
 - **Race:** `go test -race ./...`.
-- **Lint:** `make lint` (or `golangci-lint run ./...`).
-- **Format:** `goimports -w .`.
+- **Lint:** `make lint` (or `golangci-lint run ./...`). Fails on
+  unformatted code too, because `goimports` runs as a golangci-lint
+  formatter. There is no separate format check to remember.
+- **Format:** `golangci-lint fmt` (or `goimports -w .`).
 - **Hooks:** `make hooks` (one-time, activates `commit-msg`).
 
 ## Testing
