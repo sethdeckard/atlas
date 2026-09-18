@@ -171,7 +171,7 @@ func TestContractHome(t *testing.T) {
 		{home, "~"},
 		{filepath.Join(home, "code"), "~" + sep + "code"},
 		{filepath.Join(home, ".config", "atlas", "config.toml"), "~" + sep + ".config" + sep + "atlas" + sep + "config.toml"},
-		{"/etc/passwd", "/etc/passwd"}, // not under home → unchanged
+		{"/etc/passwd", "/etc/passwd"},         // not under home → unchanged
 		{home + "anything", home + "anything"}, // sibling-prefix safety
 	}
 	for _, c := range cases {

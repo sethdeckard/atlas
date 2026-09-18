@@ -22,13 +22,14 @@ import (
 // binaries don't corrupt each other's state.
 //
 // Version history:
-//   1 — M1 initial schema.
-//   2 — E.0 cleanup: dropped Repo.Meta + Repo.MetaMtime when curated metadata
-//       was removed from the design.
-//   3 — M4 derived signals: added Languages/BehindOrigin/AheadOrigin/
-//       StashCount/BranchCount/CommitsLast30d/UpstreamRef plus four new
-//       CommonDir-relative mtime fingerprints (RefsHeads/RefsStash/
-//       RefsRemotes/UpstreamRef/PackedRefs).
+//
+//	1 — M1 initial schema.
+//	2 — E.0 cleanup: dropped Repo.Meta + Repo.MetaMtime when curated metadata
+//	    was removed from the design.
+//	3 — M4 derived signals: added Languages/BehindOrigin/AheadOrigin/
+//	    StashCount/BranchCount/CommitsLast30d/UpstreamRef plus four new
+//	    CommonDir-relative mtime fingerprints (RefsHeads/RefsStash/
+//	    RefsRemotes/UpstreamRef/PackedRefs).
 const CurrentVersion = 3
 
 // Cache is the on-disk shape. The map is keyed by absolute repo or worktree

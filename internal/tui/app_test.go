@@ -2049,7 +2049,7 @@ func TestStatusBarHeightStableWhileFiltering(t *testing.T) {
 // style render around the typed text. When typing, the full
 // visible row is:
 //
-//   prompt + value + cursor + padding-to-ti.Width + bar-padding
+//	prompt + value + cursor + padding-to-ti.Width + bar-padding
 //
 // which simplifies to prompt + ti.Width + 1 (cursor) inside the
 // bar, then +2 for the bar's Padding(0, 1). So the invariant is

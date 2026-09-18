@@ -17,13 +17,13 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 type styles struct {
-	header        lipgloss.Style
-	row           lipgloss.Style
-	selected      lipgloss.Style
-	groupHeader   lipgloss.Style
-	statusBar     lipgloss.Style
-	hintKey       lipgloss.Style
-	hintLabel     lipgloss.Style
+	header      lipgloss.Style
+	row         lipgloss.Style
+	selected    lipgloss.Style
+	groupHeader lipgloss.Style
+	statusBar   lipgloss.Style
+	hintKey     lipgloss.Style
+	hintLabel   lipgloss.Style
 	// filterBarActive is the status bar's first-line style when
 	// filter mode is open. Distinct from the regular statusBar
 	// background so the user can see at a glance that keystrokes

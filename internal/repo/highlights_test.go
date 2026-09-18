@@ -50,7 +50,7 @@ func TestHighlights_DirtyAndUntracked(t *testing.T) {
 
 func TestHighlights_AheadBehindStash(t *testing.T) {
 	r := repo.Repo{
-		Path:         "/p", Kind: repo.KindRepo, OriginURL: "x",
+		Path: "/p", Kind: repo.KindRepo, OriginURL: "x",
 		AheadOrigin: 2, BehindOrigin: 3, StashCount: 1,
 	}
 	want := []string{"2 commits ahead", "3 commits behind", "1 stash"}

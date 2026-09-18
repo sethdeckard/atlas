@@ -63,13 +63,13 @@ func SetPromptForRoot(f func(ctx context.Context, configPath string, cfg config.
 // on top of this so cache and refresh behavior can't drift between
 // subcommands.
 type Pipeline struct {
-	Config       config.Config
-	Root         string
-	Cache        *cache.Cache
-	cachePath    string
+	Config        config.Config
+	Root          string
+	Cache         *cache.Cache
+	cachePath     string
 	useCachedOnly bool
-	fresh        bool
-	walkErrors   int
+	fresh         bool
+	walkErrors    int
 }
 
 // PipelineOpts captures the cross-subcommand inputs that decide where
@@ -233,4 +233,3 @@ func reportPipelinePartial(repos []repo.Repo, walkErrors int) error {
 	}
 	return &PartialError{Repos: repoErrs, Walk: walkErrors}
 }
-

@@ -19,11 +19,15 @@ const legendHeight = 5
 // label in the help box). Keeping the entry text in one place avoids
 // drift between the two surfaces.
 //
-// Glyph vocabulary mirrors flagString in table.go:
-//   *  dirty       ↑N ahead
-//   ?  untracked   ↓N behind
-//   ▲  stale       ≡N stashed
-//   ⊘  lagging     !  error
+// Glyph vocabulary mirrors flagString in table.go. The header row is
+// not decoration: gofmt reads a leading * as a list bullet and would
+// otherwise fold these four rows into a single mangled list item.
+//
+//	glyph  meaning     glyph  meaning
+//	*      dirty       ↑N     ahead
+//	?      untracked   ↓N     behind
+//	▲      stale       ≡N     stashed
+//	⊘      lagging     !      error
 func legendEntries() []string {
 	row := func(lg, ll, rg, rl string) string {
 		return fmt.Sprintf("%-3s%-14s%-3s%s", lg, ll, rg, rl)

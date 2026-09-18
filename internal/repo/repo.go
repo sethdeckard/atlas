@@ -67,14 +67,14 @@ func (k *Kind) UnmarshalJSON(data []byte) error {
 // filesystem state. There is no per-repo curated metadata.
 type Repo struct {
 	Name                string     `json:"name"`
-	Path                string     `json:"path"`            // absolute worktree path (or bare repo path)
-	RelPath             string     `json:"rel_path"`        // ~-relative for display
+	Path                string     `json:"path"`     // absolute worktree path (or bare repo path)
+	RelPath             string     `json:"rel_path"` // ~-relative for display
 	Kind                Kind       `json:"kind"`
-	Branch              string     `json:"branch"`          // "" if detached or bare
+	Branch              string     `json:"branch"` // "" if detached or bare
 	DetachedHead        bool       `json:"detached_head"`
-	HeadSHA             string     `json:"head_sha"`        // short SHA
+	HeadSHA             string     `json:"head_sha"` // short SHA
 	Dirty               bool       `json:"dirty"`
-	UntrackedOnly       bool       `json:"untracked_only"`  // dirty but only ?? entries
+	UntrackedOnly       bool       `json:"untracked_only"` // dirty but only ?? entries
 	LastCommitAt        *time.Time `json:"last_commit_at,omitempty"`
 	OriginURL           string     `json:"origin_url"`
 	DefaultBranch       string     `json:"default_branch"`
@@ -106,13 +106,13 @@ type Repo struct {
 	//      cfg.StaleDays + now (plus the scoped repo set for the
 	//      worktree signals), so persisting them would just create
 	//      cache-vs-config drift. Filled by repo.AnnotateDerived.
-	BehindOrigin   int      `json:"behind_origin"`            // commits behind upstream; -1 if no upstream
-	AheadOrigin    int      `json:"ahead_origin"`             // commits ahead of upstream; -1 if no upstream
-	UpstreamRef    string   `json:"upstream_ref,omitempty"`   // resolved upstream ref path under CommonDir, e.g. "refs/remotes/origin/main"
-	Languages      []string `json:"languages,omitempty"`      // bucket 2: last-known
-	StashCount     int      `json:"stash_count"`              // bucket 2: last-known
-	BranchCount    int      `json:"branch_count"`             // bucket 2: last-known
-	CommitsLast30d int      `json:"commits_last_30d"`         // bucket 2: last-known
+	BehindOrigin   int      `json:"behind_origin"`          // commits behind upstream; -1 if no upstream
+	AheadOrigin    int      `json:"ahead_origin"`           // commits ahead of upstream; -1 if no upstream
+	UpstreamRef    string   `json:"upstream_ref,omitempty"` // resolved upstream ref path under CommonDir, e.g. "refs/remotes/origin/main"
+	Languages      []string `json:"languages,omitempty"`    // bucket 2: last-known
+	StashCount     int      `json:"stash_count"`            // bucket 2: last-known
+	BranchCount    int      `json:"branch_count"`           // bucket 2: last-known
+	CommitsLast30d int      `json:"commits_last_30d"`       // bucket 2: last-known
 
 	ActivityTier  string `json:"-"` // "recent"|"active"|"cold"|"dormant"|"empty"
 	Stale         bool   `json:"-"`

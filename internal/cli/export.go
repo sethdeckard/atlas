@@ -201,7 +201,7 @@ func writeTierSections(b *strings.Builder, repos []repo.Repo, root string) {
 // writeRepoBullets renders one repo per line with the conventional
 // markdown shape:
 //
-//	- **Name** — `branch` (↑N ↓N) · last 3d ago · languages: go · [origin](url) · _highlights_
+//   - **Name** — `branch` (↑N ↓N) · last 3d ago · languages: go · [origin](url) · _highlights_
 //
 // Empty / not-applicable segments are elided so the output stays
 // terse for clean repos.
@@ -357,4 +357,3 @@ func divergenceForBullet(r repo.Repo) string {
 	}
 	return fmt.Sprintf("(↑%d ↓%d)", a, bh)
 }
-

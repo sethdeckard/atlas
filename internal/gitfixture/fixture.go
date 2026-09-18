@@ -20,17 +20,17 @@ var FixedTime = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 // Options collects the configurable knobs for Repo. Build via the With*
 // helpers, not literals.
 type Options struct {
-	Branch       string
-	Origin       string
-	Commits      int
-	Dirty        bool
+	Branch        string
+	Origin        string
+	Commits       int
+	Dirty         bool
 	UntrackedOnly bool
-	Detached     bool
-	Empty        bool
-	Bare         bool
-	WorktreeOf   string // path of an existing repo to add a linked worktree to
-	WorktreeName string // name for the linked worktree dir under parent's parent
-	CommitTime   time.Time
+	Detached      bool
+	Empty         bool
+	Bare          bool
+	WorktreeOf    string // path of an existing repo to add a linked worktree to
+	WorktreeName  string // name for the linked worktree dir under parent's parent
+	CommitTime    time.Time
 }
 
 // Option mutates Options. Used by Repo as variadic arg.

@@ -11,22 +11,22 @@ import (
 func mkDetailRepo(name string) *repo.Repo {
 	when := time.Date(2026, 4, 30, 9, 21, 0, 0, time.UTC)
 	return &repo.Repo{
-		Name:         name,
-		Path:         "/home/u/projects/go/" + name,
-		RelPath:      "~/projects/go/" + name,
-		Kind:         repo.KindRepo,
-		Branch:       "main",
-		HeadSHA:      "abc1234",
-		LastCommitAt: &when,
-		OriginURL:    "git@github.com:s/" + name + ".git",
-		DefaultBranch: "main",
-		BranchCount:  3,
-		StashCount:   1,
-		Languages:    []string{"go"},
-		ActivityTier: "recent",
+		Name:           name,
+		Path:           "/home/u/projects/go/" + name,
+		RelPath:        "~/projects/go/" + name,
+		Kind:           repo.KindRepo,
+		Branch:         "main",
+		HeadSHA:        "abc1234",
+		LastCommitAt:   &when,
+		OriginURL:      "git@github.com:s/" + name + ".git",
+		DefaultBranch:  "main",
+		BranchCount:    3,
+		StashCount:     1,
+		Languages:      []string{"go"},
+		ActivityTier:   "recent",
 		CommitsLast30d: 8,
-		AheadOrigin:  2,
-		BehindOrigin: 0,
+		AheadOrigin:    2,
+		BehindOrigin:   0,
 	}
 }
 
